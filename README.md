@@ -1,63 +1,100 @@
+<div align="center">
+
+<img src="public/icon/128.png" alt="EngLint logo" width="96" height="96">
+
 # EngLint
 
-A linter for English. EngLint is a Chrome and Brave extension that checks your writing as you type, in any text box, in rich editors such as Gmail, and in Google Docs. It runs on your own AI key, and you choose the provider.
+**A writing assistant for Chrome that runs on your own AI key.**
 
-## Features
+Grammar, clarity and style checks as you type, with rewrites, a chat and a full essay review. Your text goes only to the provider you choose.
 
-- **Live checks as you type:** spelling, grammar, punctuation and word choice, plus clarity, engagement and delivery suggestions. Accept or dismiss each one from a card under the underline.
-- **Writing modes:**
-  - **Essay:** careful, comment-first;
-  - **Standard;**
-  - **Casual.**
+[![CI](https://github.com/3xyy/EngLint/actions/workflows/ci.yml/badge.svg)](https://github.com/3xyy/EngLint/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![Built with WXT](https://img.shields.io/badge/built%20with-WXT-67D55E)
+![Bring your own key](https://img.shields.io/badge/AI-bring%20your%20own%20key-8A63D2)
 
-  Set them per site. Google Docs and the Common App open in Essay mode.
-- **Instant local checks:** [Harper](https://writewithharper.com) runs on your computer as WebAssembly, so common mistakes show at once and that text never leaves your machine. Generic-phrasing detection also runs locally.
-- **Rewrite tools:** select text and press Ctrl+Shift+E, or right-click, to get:
-  - rewrites in several tones;
-  - synonyms;
-  - "Sound like me", which removes generic phrasing in your own voice;
-  - follow-up questions about any result.
-- **Side panel:**
-  - every issue in the field;
-  - a chat about your writing;
-  - **Review:** document stats and tone, reader reactions, a grader that scores against a rubric you paste, a whole-text deep check, and a citation finder (on Claude, using web search).
-- **Learns from you:**
-  - **Personal dictionary.**
-  - **"Stop suggesting" rules:** set per mode. After you dismiss the same kind of suggestion three times, EngLint offers to stop it.
-  - **Style profile:** opt-in. Rewrites and synonyms use it to sound like you.
-- **Any provider:**
-  - **Claude:** the default; EngLint is tuned and tested on it.
-  - **Any OpenAI-compatible provider:** OpenAI, Google Gemini, OpenRouter, Groq, Ollama, LM Studio, or a custom endpoint.
-- **Spending:** costs come from each response's real token usage. A monthly limit pauses live checks when it's reached.
+</div>
 
-## Privacy
+---
 
-- **Your key:** it lives only in the extension's background worker. Web pages and content scripts never see it. A key is sent only to the provider it was saved for.
-- **Your text:** it goes only to the provider you chose, and only to check it. Harper's checks stay on your computer.
-- **No tracking:** EngLint sends no telemetry and keeps no log of your typing.
+## Why EngLint
 
-## Install from source
+Most writing assistants lock their best suggestions behind a subscription and send your writing through their own servers. EngLint is different on both counts:
 
-You need Node.js and npm.
+- **You bring the key.** Use Claude, or any OpenAI-compatible provider, and pay that provider directly for what you use.
+- **You stay in control.** A spending limit, real token accounting and no telemetry come built in.
+- **It sees your context.** Underlines appear in Google Docs, Gmail, rich editors and plain text boxes alike.
+
+## Highlights
+
+| | |
+|---|---|
+| **Live checks** | Spelling, grammar and punctuation, plus clarity, word-choice and tone suggestions, each one a single click to accept or dismiss. |
+| **Instant local checks** | [Harper](https://writewithharper.com) runs in the browser as WebAssembly. Common mistakes are flagged in milliseconds, without that text leaving your machine. |
+| **Rewrite bar** | Highlight anything to improve it, shorten it, change its tone, or make it sound like you. Follow up in plain words ("make it punchier") right in the popup. |
+| **Writing modes** | Essay mode leads with comments instead of rewriting your voice. Standard and Casual fit everyday writing. Each site remembers its mode, and essay sites start in Essay. |
+| **Essay review** | A side panel with document stats and tone, reactions from different readers, a grader that scores you against your own rubric, a whole-text deep check, and a citation finder backed by web search (on Claude). |
+| **Chat** | Ask about the text you're writing. Answers can propose edits you apply in one click. |
+| **Learns your style** | A personal dictionary, "stop suggesting this" rules per mode, and an optional style profile that keeps rewrites in your voice. |
+| **Any provider** | Claude is the default, and EngLint is tuned and tested on it. OpenAI, Google Gemini, OpenRouter, Groq, Ollama, LM Studio and custom endpoints work too. |
+
+## Install
+
+EngLint isn't on the Chrome Web Store yet. Build it from source:
 
 ```bash
+git clone https://github.com/3xyy/EngLint.git
+cd EngLint
 npm install
 npm run build
 ```
 
-Then open `chrome://extensions` (or `brave://extensions`), turn on Developer mode, click **Load unpacked**, and choose `.output/chrome-mv3`. Open EngLint's settings to add your API key.
+Then open `chrome://extensions` (or `brave://extensions`), turn on **Developer mode**, choose **Load unpacked**, and select `.output/chrome-mv3`. Open EngLint's settings, pick a provider and add your API key.
+
+## Choose your AI
+
+| Provider | Setup |
+|---|---|
+| **Claude** (recommended) | An API key from the Claude Console. |
+| **OpenAI, Gemini, OpenRouter, Groq** | Your key for that provider, plus a fast and a smart model chosen from its own model list. |
+| **Ollama, LM Studio** | Runs on your computer. No key needed. |
+| **Custom endpoint** | Any OpenAI-compatible URL (https, or http on localhost). |
+
+Spending is computed from each response's real token usage. Enter a model's prices to have it count toward your monthly limit.
+
+## Privacy
+
+- **Your API key** lives only in the extension's background worker. Web pages and content scripts never see it, and each key is sent only to the address it was saved for.
+- **Your text** goes only to the provider you chose, and only to check it. Local checks never leave the browser.
+- **No telemetry** and no typing logs. Settings stay on your machine.
 
 ## Development
 
 ```bash
 npm run dev        # build and reload while you work
 npm test           # unit tests (Vitest)
-npm run typecheck  # TypeScript
+npm run typecheck  # TypeScript, strict
 npm run e2e        # end-to-end tests (Playwright, against a local mock API)
+npm run build      # production build in .output/chrome-mv3
 ```
 
-The evals in `evals/` measure suggestion quality against the real Claude API. They read `ANTHROPIC_API_KEY` from a local `.env` file, and each run costs a little money.
+Quality evals in `evals/` measure suggestion precision, rewrite quality and review accuracy against the real Claude API. They read `ANTHROPIC_API_KEY` from a local `.env` file, and each run costs a few cents.
+
+### Project structure
+
+| Path | What's there |
+|---|---|
+| `src/background/` | The service worker: model clients, prompts, caching, spending and key storage |
+| `src/content/` | Field detection, editor adapters (textarea, rich editors, Google Docs) and the shadow-DOM overlay |
+| `src/core/` | Pure logic: issue matching, diffs, modes, kinds, costs and schemas |
+| `src/entrypoints/` | The side panel, popup, settings page and offscreen document |
+| `src/shared/` | The design system, shared controls and messaging |
+| `tests/` | Unit tests, end-to-end tests and fixtures |
+| `evals/` | Quality evals and their fixtures |
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Third-party notices are in [public/NOTICE.txt](public/NOTICE.txt).
+[MIT](LICENSE) © 2026 Yuvraj Dar. Third-party notices are in [public/NOTICE.txt](public/NOTICE.txt).
