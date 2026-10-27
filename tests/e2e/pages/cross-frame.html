@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>EngLint e2e: a frame from another host</title>
+    <link rel="icon" href="data:," />
+    <style>
+      body { margin: 0; padding: 20px; font-family: sans-serif; }
+      #child { display: block; width: 640px; height: 480px; border: 1px solid #888; }
+    </style>
+  </head>
+  <body>
+    <p>The textarea below lives in an iframe from another host (?child=URL).</p>
+    <iframe id="child"></iframe>
+    <script>
+      document.getElementById('child').src = new URLSearchParams(location.search).get('child');
+    </script>
+  </body>
+</html>

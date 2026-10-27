@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fake Docs</title>
+<!--
+  A stand-in for a Google Docs document, built from attributes recorded on a live document: the annotate API (a Promise of
+  getText/getSelection/setSelection, offered only when _docs_annotate_canvas_by_ext is set), getText()
+  with \u0003 and \n, one invisible <rect aria-label> per painted line inside .kix-rotatingtilemanager-content
+  (labels without leading whitespace, "●" rects for list items, only lines near the viewport painted),
+  the .kix-appview-editor scroll container, and the text-event iframe whose editable takes pastes
+  (focused only; like live Docs, it strips plain edge spaces and turns NBSP into a space; it ignores an
+  empty paste, the cautious guess, since what live Docs does with one is unverified).
+  The visible text is HTML at the rects' positions, so tests can measure words independently.
+  Like live Docs, the tile container is position:absolute; z-index:22 (a stacking context over anything at
+  z-index auto in the editor) and the pages are opaque white. The tile manager is the editor's hit region
+  (docs-ui-hit-region-surface). As live, the editor's children are the tile
+  branch, then .kix-appview-clipped-ui-elements-container (position: absolute; z-index: 41, holding the
+  caret, .kix-cursor at z-index 27), then .kix-scrollbararea. The tile branch also holds a floating
+  docs-gm3-filled-button (position: fixed; z-index: 23). The button rests right of the page and the caret at
+  the editor's top left, away from the text.
+  Like live Docs, a scroll repaints only when other lines come near the viewport; otherwise the painted
+  tiles just scroll with the editor. fakeDocs.getTextCalls counts the annotate API's getText() calls.
+  Query: ?zoom=1.5 scales the page; ?paint=mismatch paints labels that don't match the text; ?paintDelay=8000
+  paints no rects for the first 8 s (a slow cold load: the API answers and the text shows, but no line rects yet).
+  fakeDocs.replaceEditor() swaps in a new .kix-appview-editor, as Docs may do.
+  ?canvas=1 shows the text as live Docs does, on a tile canvas (canvas.kix-canvas-tile-content, its backing store
+  twice its CSS size, drawn through a 2x transform) with fillText, one run per line and the list bullet as its own
+  run; the HTML text is hidden. Like a live tile, the canvas is repainted only when the text changes: a scroll
+  re-renders the rects alone (fakeDocs.canvasPaints counts repaints). With it, ?justify=1 paints each body line
+  word by word, spread to the full text width (its rect spans that width too), and ?bold=1 paints the word "has"
+  in bold (its rect keeps the line's regular font and spans the painted width). ?norecorder=1 paints the same
+  pixels through an OffscreenCanvas copied onto the tile, so EngLint's page-world canvas recorder sees no text and
+  the rects alone place the underlines. window.__wordBoxes gives each painted word's true viewport box, read from
+  the canvas's current box, so it follows scrolling and zoom. With ?canvas=1 a double-click selects the word under
+  the pointer and paints its highlight as a translucent blue fill (rgba(78, 143, 248, 0.5)) over the word (3 px wider
+  each side) on the tile; a press clears it. window.__highlightBox gives the painted highlight's viewport box, or null.
+-->
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { font-family: Arial, sans-serif; }
+  .toolbar { height: 80px; background: #eceff1; }
+  .kix-appview-editor { position: absolute; top: 80px; left: 0; width: 1100px; height: 360px; overflow: auto; background: #f1f3f4; }
+  .kix-rotatingtilemanager-content { position: absolute; z-index: 22; }
+  .kix-page-paginated { position: relative; margin-left: 40px; width: 816px; background: #fff; transform-origin: 0 0; }
+  .text-layer div { position: absolute; white-space: pre; margin: 0; color: #202124; }
+  .kix-canvas-tile-content svg { position: absolute; left: 0; top: 0; overflow: visible; }
+  canvas.kix-canvas-tile-content { position: absolute; left: 0; top: 0; }
+  .docs-gm3-filled-button { position: fixed; z-index: 23; left: 980px; top: 380px; width: 96px; height: 40px; border-radius: 20px; background: #0b57d0; }
+  .kix-appview-clipped-ui-elements-container { position: absolute; z-index: 41; left: 0; top: 0; }
+  .kix-cursor { position: absolute; z-index: 27; left: 0; top: 0; }
+  .kix-cursor-caret { width: 2px; height: 20px; background: #000; }
+  .docs-texteventtarget-iframe { position: absolute; top: -10000px; left: 0; width: 10px; height: 10px; border: 0; }
+</style>
+</head>
+<body>
+<div class="toolbar">Toolbar</div>
+<div class="kix-appview-editor-container">
+  <div class="kix-appview-editor">
+    <div>
+      <div class="kix-rotatingtilemanager docs-ui-hit-region-surface">
+        <div class="kix-rotatingtilemanager-content">
+          <div class="kix-page-paginated canvas-first-page">
+            <div class="text-layer"></div>
+            <div class="kix-canvas-tile-content kix-canvas-tile-text">
+              <svg width="100%" height="100%"></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="docs-gm3-filled-button" role="button" tabindex="0" aria-label="Ask"></div>
+    </div>
+    <div class="kix-appview-clipped-ui-elements-container"><div class="kix-cursor"><div class="kix-cursor-caret"></div></div></div>
+    <div class="kix-scrollbararea"></div>
+  </div>
+</div>
+<iframe class="docs-texteventtarget-iframe docs-offscreen-z-index"></iframe>
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const zoom = Number(params.get('zoom') ?? 1);
+  const BODY_FONT = '400 14.6667px "Arial"';
+  const HEADING_FONT = '400 26.6667px "Arial"';
+  const LINE = 24; // px per line at 100%
+  const MARGIN = 96; // page margin at 100%
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const canvasMode = params.has('canvas');
+  const justify = params.has('justify');
+  const boldHas = params.has('bold');
+  const noRecorder = params.has('norecorder');
+  const BOLD_BODY_FONT = '700 14.6667px "Arial"';
+  const PAGE_WIDTH = 816;
+  const TEXT_WIDTH = PAGE_WIDTH - 2 * MARGIN;
+  const BACKING = 2; // backing px per CSS px on the tile canvas
+  const BASELINE = 18; // a line's alphabetic baseline, below its top
+
+  const filler = Array.from({ length: 30 }, (_, i) => ({ text: `Filler paragraph ${i + 1} keeps the page long enough to scroll.` }));
+  let paragraphs = [
+    { text: 'Quarterly Notes', heading: true },
+    { text: 'I has a cat and she likes to sleep on the sofa.' },
+    { text: ' This line starts with one leading space and it contain a mistake.' },
+    { text: 'Shopping list:' },
+    { text: 'Apples and oranges', list: true },
+    { text: 'Bread and buter', list: true },
+    { text: 'Hello world,how are you.' },
+    ...filler,
+    { text: 'She go home after the long day.' },
+  ];
+
+  const fake = {
+    paint: params.has('paintDelay') ? 'none' : params.get('paint') ?? 'ok',
+    pastes: [],
+    getTextCalls: 0,
+    canvasPaints: 0,
+    selection: { start: 0, end: 0 },
+    flag: window._docs_annotate_canvas_by_ext ?? null,
+    text: () => '\u0003' + paragraphs.map((p) => p.text + '\n').join(''),
+    setPaint(mode) {
+      fake.paint = mode;
+      render();
+    },
+    replaceEditor() {
+      const container = document.querySelector('.kix-appview-editor-container');
+      container.replaceChildren(editorTemplate.content.cloneNode(true));
+      mountEditor();
+    },
+  };
+  window.fakeDocs = fake;
+
+  // ---- the model: getText() is \u0003 + each paragraph + \n ----
+  function setText(text) {
+    const lines = text.replace(/^\u0003/, '').split('\n');
+    lines.pop(); // the text ends with \n
+    paragraphs = lines.map((line, i) => ({ ...(lines.length === paragraphs.length ? paragraphs[i] : {}), text: line }));
+    render();
+  }
+  function replaceSelection(inserted) {
+    const text = fake.text();
+    const { start, end } = fake.selection;
+    setText(text.slice(0, start) + inserted + text.slice(end));
+    fake.selection = { start: start + inserted.length, end: start + inserted.length };
+  }
+
+  // Docs offers the API only when an extension set the flag before it started.
+  if (window._docs_annotate_canvas_by_ext) {
+    const api = {
+      getText: () => {
+        fake.getTextCalls++;
+        return fake.text();
+      },
+      getAnnotations: () => [],
+      getSelection: () => [{ start: fake.selection.start, end: fake.selection.end }],
+      setSelection: (start, end) => {
+        fake.selection = { start, end };
+      },
+    };
+    window._docs_annotate_getAnnotatedText = async () => api;
+  }
+
+  // ---- painting: HTML text for every line, rects only for lines near the viewport ----
+  const ctx = document.createElement('canvas').getContext('2d');
+  const measure = (text, font) => {
+    ctx.font = font;
+    return ctx.measureText(text).width;
+  };
+  // The editor's markup, kept to build a replacement with (replaceEditor).
+  const editorTemplate = document.createElement('template');
+  editorTemplate.innerHTML = document.querySelector('.kix-appview-editor-container').innerHTML;
+  let editor, pageEl, textLayer, svg;
+  let tile = null; // the tile canvas (?canvas=1)
+  let tileText = null; // the text it shows
+  let wordBoxes = []; // each painted word: { text, line, x, width, top, start } in page px; start is its text offset
+  const HIGHLIGHT_PAD = 3; // the painted highlight bleeds this far past the word's glyphs on each side
+  let highlight = null; // the painted selection highlight (?canvas=1): { x, width, top } in page px
+  function mountEditor() {
+    editor = document.querySelector('.kix-appview-editor');
+    pageEl = document.querySelector('.kix-page-paginated');
+    textLayer = document.querySelector('.text-layer');
+    svg = document.querySelector('.kix-canvas-tile-content svg');
+    pageEl.style.transform = `scale(${zoom})`;
+    if (canvasMode) {
+      tile = document.createElement('canvas');
+      tile.className = 'kix-canvas-tile-content';
+      pageEl.prepend(tile);
+      textLayer.style.visibility = 'hidden';
+      tileText = null;
+    }
+    editor.addEventListener('scroll', () => {
+      if (paintedLines() !== painted) render();
+    });
+    editor.addEventListener('mousedown', onMouseDown);
+    editor.addEventListener('dblclick', onDoubleClick);
+    render();
+  }
+
+  // The band of page y painted with rects: the viewport plus two lines either side.
+  const band = () => ({
+    top: editor.scrollTop / zoom - 2 * LINE,
+    bottom: (editor.scrollTop + editor.clientHeight) / zoom + 2 * LINE,
+  });
+  // Which lines the band reaches, as a key: a scroll that keeps it paints nothing new.
+  let painted = '';
+  const paintedLines = () => {
+    const { top, bottom } = band();
+    return `${Math.max(0, Math.ceil((top - LINE - MARGIN) / LINE))}:${Math.floor((bottom - MARGIN) / LINE)}`;
+  };
+
+  function render() {
+    painted = paintedLines();
+    pageEl.style.height = `${MARGIN * 2 + paragraphs.length * LINE}px`;
+    textLayer.replaceChildren();
+    svg.replaceChildren();
+    const { top: visibleTop, bottom: visibleBottom } = band();
+    paragraphs.forEach((p, i) => {
+      const font = p.heading ? HEADING_FONT : BODY_FONT;
+      const top = MARGIN + i * LINE;
+      const indent = p.list ? 48 : 0;
+      const label = p.text.replace(/^\s+/, '');
+      const lead = measure(p.text.slice(0, p.text.length - label.length), font);
+      const div = document.createElement('div');
+      Object.assign(div.style, { left: `${MARGIN + indent}px`, top: `${top}px`, font, lineHeight: `${LINE}px` });
+      div.textContent = p.text;
+      textLayer.append(div);
+      if (label === '' || fake.paint === 'none' || top + LINE < visibleTop || top > visibleBottom) return;
+      const g = document.createElementNS(SVG_NS, 'g');
+      g.setAttribute('data-section-type', 'body');
+      g.setAttribute('role', 'paragraph');
+      const rect = (text, x, width = measure(text, font)) => {
+        const r = document.createElementNS(SVG_NS, 'rect');
+        const shown = fake.paint === 'mismatch' ? text.toUpperCase() : text;
+        for (const [k, v] of Object.entries({
+          x, y: 0, width, height: LINE, fill: 'none', opacity: 0,
+          transform: `matrix(1,0,0,1,${MARGIN},${top})`, 'aria-label': shown, 'data-font-css': font,
+        })) r.setAttribute(k, String(v));
+        g.append(r);
+      };
+      if (p.list) rect('●', 24);
+      if (canvasMode) {
+        const { labelX, labelWidth } = layoutOf(p);
+        rect(label, labelX, labelWidth);
+      } else {
+        rect(label, indent + lead);
+      }
+      svg.append(g);
+    });
+    if (canvasMode) paintCanvas();
+  }
+
+  // ---- the tile canvas (?canvas=1) ----
+  // A line as painted, x from the margin: its runs, its words' boxes, and its label rect's x and width.
+  function layoutOf(p) {
+    const font = p.heading ? HEADING_FONT : BODY_FONT;
+    const indent = p.list ? 48 : 0;
+    // The text in runs of one font each: under ?bold=1 the word "has" is its own bold run.
+    const segments = [];
+    let at = 0;
+    if (boldHas) {
+      for (const m of p.text.matchAll(/\bhas\b/g)) {
+        if (m.index > at) segments.push({ text: p.text.slice(at, m.index), font });
+        segments.push({ text: m[0], font: BOLD_BODY_FONT });
+        at = m.index + m[0].length;
+      }
+    }
+    if (at < p.text.length) segments.push({ text: p.text.slice(at), font });
+    let pieces = [];
+    const words = [];
+    let x = indent;
+    for (const seg of segments) {
+      pieces.push({ text: seg.text, x, font: seg.font });
+      for (const m of seg.text.matchAll(/\S+/g)) {
+        words.push({ text: m[0], font: seg.font, x: x + measure(seg.text.slice(0, m.index), seg.font), width: measure(m[0], seg.font) });
+      }
+      x += measure(seg.text, seg.font);
+    }
+    const first = words[0];
+    const last = words[words.length - 1];
+    const natural = last ? last.x + last.width : indent;
+    if (justify && !p.heading && !p.list && words.length > 1 && natural < TEXT_WIDTH) {
+      const extra = (TEXT_WIDTH - natural) / (words.length - 1);
+      words.forEach((w, i) => (w.x += i * extra));
+      pieces = words.map((w) => ({ text: w.text, x: w.x, font: w.font }));
+    }
+    return { pieces, words, labelX: first ? first.x : indent, labelWidth: last ? last.x + last.width - first.x : 0 };
+  }
+
+  // Repaints the whole tile when the text changed; a scroll leaves it as it is.
+  function paintCanvas() {
+    const text = fake.text();
+    if (text === tileText) return;
+    tileText = text;
+    fake.canvasPaints++;
+    const height = MARGIN * 2 + paragraphs.length * LINE;
+    tile.style.width = `${PAGE_WIDTH}px`;
+    tile.style.height = `${height}px`;
+    if (tile.width !== PAGE_WIDTH * BACKING) tile.width = PAGE_WIDTH * BACKING;
+    if (tile.height !== height * BACKING) tile.height = height * BACKING;
+    // The recorder patches CanvasRenderingContext2D only: an OffscreenCanvas context paints unseen.
+    const target = noRecorder ? new OffscreenCanvas(tile.width, tile.height) : tile;
+    const c = target.getContext('2d');
+    c.setTransform(BACKING, 0, 0, BACKING, 0, 0);
+    c.fillStyle = '#ffffff';
+    c.fillRect(0, 0, PAGE_WIDTH, height);
+    c.fillStyle = '#202124';
+    c.textAlign = 'start';
+    c.textBaseline = 'alphabetic';
+    wordBoxes = [];
+    paragraphs.forEach((p, i) => {
+      const top = MARGIN + i * LINE;
+      const { pieces, words } = layoutOf(p);
+      if (p.list) {
+        c.font = BODY_FONT;
+        c.fillText('●', MARGIN + 24, top + BASELINE);
+      }
+      for (const piece of pieces) {
+        c.font = piece.font;
+        c.fillText(piece.text, MARGIN + piece.x, top + BASELINE);
+      }
+      const starts = [...p.text.matchAll(/\S+/g)].map((m) => m.index);
+      const base = 1 + paragraphs.slice(0, i).reduce((n, q) => n + q.text.length + 1, 0);
+      words.forEach((w, j) => wordBoxes.push({ text: w.text, line: i, x: MARGIN + w.x, width: w.width, top, start: base + starts[j] }));
+    });
+    // Docs paints a selection as a translucent fill over the text, through the normal context.
+    if (highlight) {
+      c.fillStyle = 'rgba(78, 143, 248, 0.5)';
+      c.fillRect(highlight.x, highlight.top, highlight.width, LINE);
+    }
+    if (noRecorder) tile.getContext('2d').drawImage(target, 0, 0);
+  }
+
+  // A double-click selects the word under the pointer and paints its highlight; a press clears it.
+  function repaintTile() {
+    tileText = null;
+    paintCanvas();
+  }
+  function onDoubleClick(e) {
+    if (!canvasMode) return;
+    const r = tile.getBoundingClientRect();
+    const k = r.width / PAGE_WIDTH;
+    const px = (e.clientX - r.left) / k;
+    const py = (e.clientY - r.top) / k;
+    const word = wordBoxes.find((w) => px >= w.x && px < w.x + w.width && py >= w.top && py < w.top + LINE);
+    if (!word) return;
+    fake.selection = { start: word.start, end: word.start + word.text.length };
+    highlight = { x: word.x - HIGHLIGHT_PAD, width: word.width + 2 * HIGHLIGHT_PAD, top: word.top };
+    repaintTile();
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  }
+  Object.defineProperty(window, '__highlightBox', {
+    get() {
+      if (!tile || !highlight) return null;
+      const r = tile.getBoundingClientRect();
+      const k = r.width / PAGE_WIDTH;
+      return { left: r.left + highlight.x * k, right: r.left + (highlight.x + highlight.width) * k, top: r.top + highlight.top * k, bottom: r.top + (highlight.top + LINE) * k };
+    },
+  });
+
+  // Each painted word's true viewport box, from the tile's current box.
+  Object.defineProperty(window, '__wordBoxes', {
+    get() {
+      if (!tile) return [];
+      const r = tile.getBoundingClientRect();
+      const k = r.width / PAGE_WIDTH;
+      return wordBoxes.map((w) => ({
+        text: w.text,
+        line: w.line,
+        left: r.left + w.x * k,
+        right: r.left + (w.x + w.width) * k,
+        top: r.top + w.top * k,
+        bottom: r.top + (w.top + LINE) * k,
+      }));
+    },
+  });
+
+  // ---- the text-event iframe: pastes and typing land in the model ----
+  const frameDoc = document.querySelector('iframe.docs-texteventtarget-iframe').contentDocument;
+  frameDoc.body.innerHTML = '<div contenteditable="true" role="textbox" aria-label="Document content"></div>';
+  const editable = frameDoc.querySelector('[contenteditable="true"]');
+  editable.addEventListener('paste', (e) => {
+    if (frameDoc.activeElement !== editable) return; // like a real editor: no focus, no edit
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text/plain');
+    fake.pastes.push(pasted);
+    if (pasted === '') return;
+    replaceSelection(pasted.replace(/^ +| +$/g, '').replace(/\u00a0/g, ' ')); // as recorded live
+  });
+  frameDoc.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key.length === 1) {
+      e.preventDefault();
+      replaceSelection(e.key);
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      const { start, end } = fake.selection;
+      if (start === end && start > 1) fake.selection = { start: start - 1, end };
+      replaceSelection('');
+    }
+  });
+  // A click on the page puts the caret at the end of the clicked line, and focus in the iframe.
+  function onMouseDown(e) {
+    if (highlight) {
+      highlight = null;
+      repaintTile();
+    }
+    const line = Math.floor(((e.clientY - pageEl.getBoundingClientRect().top) / zoom - MARGIN) / LINE);
+    if (line >= 0 && line < paragraphs.length) {
+      const end = 1 + paragraphs.slice(0, line + 1).reduce((n, p) => n + p.text.length + 1, 0) - 1;
+      fake.selection = { start: end, end };
+    }
+    setTimeout(() => editable.focus());
+  }
+  mountEditor();
+  if (params.has('paintDelay')) setTimeout(() => fake.setPaint('ok'), Number(params.get('paintDelay')));
+})();
+</script>
+</body>
+</html>

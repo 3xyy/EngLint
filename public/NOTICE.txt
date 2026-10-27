@@ -1,0 +1,22 @@
+EngLint. Copyright (c) 2026 Yuvraj Dar. MIT License (see LICENSE).
+
+Third-party material:
+
+1. diff-match-patch 1.0.5. Copyright 2018 The diff-match-patch Authors.
+   Apache License 2.0 (licenses/Apache-2.0.txt). https://github.com/google/diff-match-patch
+
+2. Generic-phrasing patterns adapted from blader/humanizer (SKILL.md 3.1.0). Copyright (c) 2025 Siqi Chen.
+   MIT License (licenses/MIT-humanizer.txt). https://github.com/blader/humanizer. Reworded.
+
+3. Adapted from "Wikipedia:Signs of AI writing" by Wikipedia contributors,
+   https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing,
+   CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Condensed and reorganised.
+   The adapted material in src/background/prompts/generic-phrasing.ts and src/core/tells/catalogue.ts is CC BY-SA 4.0.
+
+4. harper.js 2.13.0 (Harper, the grammar checker, compiled to WebAssembly), by Elijah Potter and the Harper contributors
+   (Automattic). Apache License 2.0 (licenses/Apache-2.0.txt). https://writewithharper.com
+   https://github.com/automattic/harper. Unmodified. Runs on the writer's machine; no text leaves it. Harper ships no NOTICE file.
+   Where the word list in its dictionary comes from has not been confirmed upstream.
+
+Ideas only, nothing copied: Scramble (MIT, Zach Waterfield); open-grammarly (Aaryan6);
+LanguageTool (LGPL-2.1+), reached only over HTTP on a server the user runs.

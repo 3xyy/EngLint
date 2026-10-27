@@ -1,0 +1,43 @@
+{
+  "name": "englint",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "postbuild": "node scripts/check-no-secrets.mjs .output",
+    "build:e2e": "ENGLINT_E2E=1 WXT_API_BASE_URL=http://127.0.0.1:4010 wxt build && node scripts/check-no-secrets.mjs .output-e2e",
+    "test": "vitest run",
+    "e2e": "npm run build:e2e && playwright test",
+    "typecheck": "tsc --noEmit",
+    "eval": "tsx evals/run-eval.ts",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.67",
+    "@anthropic-ai/sdk": "0.135.0",
+    "@types/diff-match-patch": "1.0.36",
+    "@webext-core/messaging": "4.0.0",
+    "@wxt-dev/module-react": "1.2.2",
+    "ai": "7.0.137",
+    "diff-match-patch": "1.0.5",
+    "harper.js": "2.13.0",
+    "idb": "8.0.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "5.9.3",
+    "wxt": "0.21.4",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@testing-library/react": "16.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "fake-indexeddb": "6.2.6",
+    "happy-dom": "21.0.3",
+    "tsx": "4.23.15",
+    "vitest": "5.0.5"
+  }
+}

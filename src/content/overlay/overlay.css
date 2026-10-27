@@ -1,0 +1,577 @@
+/* Loaded into the overlay's shadow root (cssInjectionMode: 'ui'); page CSS never reaches it. */
+
+.englint-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483647;
+}
+
+/*
+ * Underlines (also in each field layer's shadow root). The element is the rect's bottom strip; the bar is
+ * its ::before, so the draw-in (a transform) never changes the element's own box.
+ */
+.englint-underline {
+  position: absolute;
+  height: 3px;
+  pointer-events: none;
+  transition: height 80ms ease-out, margin-top 80ms ease-out;
+}
+.englint-underline::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+}
+.englint-underline.error::before {
+  background: #e5483a;
+  border-radius: 1.5px;
+}
+/* Round dots, 3px apart: each 6px tile holds one dot as tall as the strip. Clarity is blue. */
+.englint-underline.suggestion::before {
+  background: radial-gradient(circle closest-side, #1a73e8 calc(100% - 0.5px), transparent 100%) left center / 6px 100% repeat-x;
+}
+/* Each other family: the same dots in its own colour; generic phrasing as dashes in the Delivery colour. */
+.englint-underline.fam-engagement::before {
+  background-image: radial-gradient(circle closest-side, #188038 calc(100% - 0.5px), transparent 100%);
+}
+.englint-underline.fam-delivery::before {
+  background-image: radial-gradient(circle closest-side, #8430ce calc(100% - 0.5px), transparent 100%);
+}
+/* 4px dashes, 3px apart. */
+.englint-underline.fam-generic::before {
+  background-image: linear-gradient(90deg, #8430ce 4px, transparent 4px);
+  background-size: 7px 100%;
+}
+/* Hovered, or its card is open: darker and 1px thicker, growing upward (the bottom stays on the text). */
+.englint-underline.active {
+  height: 4px;
+  margin-top: -1px;
+}
+.englint-underline.error.active::before {
+  background: #c9362a;
+  border-radius: 2px;
+}
+.englint-underline.suggestion.active::before {
+  background-image: radial-gradient(circle closest-side, #185abc calc(100% - 0.5px), transparent 100%);
+}
+.englint-underline.fam-engagement.active::before {
+  background-image: radial-gradient(circle closest-side, #0d652d calc(100% - 0.5px), transparent 100%);
+}
+.englint-underline.fam-delivery.active::before {
+  background-image: radial-gradient(circle closest-side, #681da8 calc(100% - 0.5px), transparent 100%);
+}
+.englint-underline.fam-generic.active::before {
+  background-image: linear-gradient(90deg, #681da8 4px, transparent 4px);
+}
+/* Shown for the first time in its field: draws from left to right, once. */
+.englint-underline.draw::before {
+  animation: englint-draw 260ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes englint-draw {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* The hovered (or carded) issue's text, tinted at once; it fades out when the pointer leaves. */
+.englint-tint {
+  position: absolute;
+  border-radius: 3px;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 80ms ease-out;
+}
+@starting-style {
+  .englint-tint {
+    opacity: 0;
+  }
+}
+.englint-tint.error {
+  background: rgba(229, 72, 58, 0.16);
+}
+.englint-tint.suggestion {
+  background: rgba(26, 115, 232, 0.14);
+}
+.englint-tint.fam-engagement {
+  background: rgba(24, 128, 56, 0.14);
+}
+.englint-tint.fam-delivery,
+.englint-tint.fam-generic {
+  background: rgba(132, 48, 206, 0.14);
+}
+.englint-tint.out {
+  opacity: 0;
+  transition: opacity 120ms ease-in;
+}
+
+/* An accepted fix: a short green flash over its text. */
+.englint-flash {
+  position: absolute;
+  border-radius: 3px;
+  background: rgba(30, 142, 62, 0.22);
+  pointer-events: none;
+  animation: englint-flash 450ms ease-out both;
+}
+@keyframes englint-flash {
+  to {
+    opacity: 0;
+  }
+}
+
+.englint-card {
+  position: fixed;
+  box-sizing: border-box;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  padding: 0;
+  overflow: hidden;
+  background: #fff;
+  color: #202124;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.15), 0 1px 2px rgba(60, 64, 67, 0.3);
+  font: 14px/20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  pointer-events: auto;
+  text-align: left;
+  /* Grows from the side nearest its text: top when below it, bottom when above (Card.tsx sets data-side). */
+  transform-origin: top;
+  animation: englint-card-in 150ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.englint-card[data-side='above'] {
+  transform-origin: bottom;
+}
+@keyframes englint-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+.englint-card-fix {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+  background: #e6f4ea;
+  color: #188038;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.englint-card-fix.delete {
+  color: #d93025; /* a deletion: the struck-through original is the fix */
+  background: #fce8e6;
+}
+.englint-card-fix:hover,
+.englint-card-fix:focus-visible {
+  background: #ceead6;
+}
+
+.englint-card-rewrite {
+  display: block;
+  width: fit-content; /* as wide as its label, at the card's left */
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+  background: #e8f0fe; /* the suggestion blue: a comment-only note has no fix, only this action */
+  color: #1a73e8;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.englint-card-rewrite:hover,
+.englint-card-rewrite:focus-visible {
+  background: #d2e3fc;
+}
+
+/* Bottom row: Dismiss, then "Stop suggesting …" or "Add to dictionary". A label too long for the row wraps to the next line. */
+.englint-card-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  border-top: 1px solid #dadce0;
+}
+/* Each as wide as its words plus padding, from the left: never a full-width bar. */
+.englint-card-dismiss,
+.englint-card-secondary {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: #5f6368;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.englint-card-dismiss:hover,
+.englint-card-dismiss:focus-visible,
+.englint-card-secondary:hover,
+.englint-card-secondary:focus-visible {
+  background: #f1f3f4;
+  color: #202124;
+}
+
+.englint-card button:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 1px;
+}
+
+/* The undo chip (Card.tsx UndoChip): where the card was, for 5 s. */
+.englint-undo {
+  position: fixed;
+  box-sizing: border-box;
+  max-width: calc(100vw - 16px);
+  display: flex;
+  align-items: center;
+  padding: 0 0 0 14px;
+  background: #202124;
+  color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.15), 0 1px 2px rgba(60, 64, 67, 0.3);
+  font: 14px/20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  pointer-events: auto;
+  text-align: left;
+  transform-origin: top;
+  animation: englint-card-in 150ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.englint-undo[data-side='above'] {
+  transform-origin: bottom;
+}
+.englint-undo-text {
+  padding: 8px 0;
+}
+.englint-undo-button {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 0 8px 8px 0;
+  background: none;
+  color: #8ab4f8;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.englint-undo-button:hover,
+.englint-undo-button:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+}
+.englint-undo-button:focus-visible {
+  outline: 2px solid #8ab4f8;
+  outline-offset: -2px;
+}
+
+.englint-notice {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  max-width: 320px;
+  padding: 10px 14px;
+  background: #202124;
+  color: #fff;
+  border-radius: 6px;
+  font: 14px/20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  pointer-events: none;
+}
+
+/* The tools popover (ToolsPopover.tsx): the card's look and enter animation, 320px wide. */
+.englint-tools {
+  position: fixed;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 4px 0;
+  background: #fff;
+  color: #202124;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.15), 0 1px 2px rgba(60, 64, 67, 0.3);
+  font: 14px/20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  pointer-events: auto;
+  text-align: left;
+  outline: none;
+  transform-origin: top;
+  animation: englint-card-in 150ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.englint-tools[data-side='above'] {
+  transform-origin: bottom;
+}
+.englint-tools p {
+  margin: 0;
+  padding: 8px 14px;
+}
+
+/* Menu items, result rows, synonym options: full-width buttons. */
+.englint-tools-item,
+.englint-tools-row,
+.englint-tools-option,
+.englint-tools-more {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.englint-tools-row,
+.englint-tools-option {
+  padding: 8px 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.englint-tools-row + .englint-tools-row,
+.englint-tools-option + .englint-tools-option {
+  border-top: 1px solid #f1f3f4;
+}
+.englint-tools-more {
+  color: #1a73e8;
+  font-weight: 500;
+  border-top: 1px solid #dadce0;
+}
+.englint-tools-item:hover,
+.englint-tools-item:focus,
+.englint-tools-row:hover,
+.englint-tools-row:focus,
+.englint-tools-option:hover,
+.englint-tools-option:focus,
+.englint-tools-more:hover,
+.englint-tools-more:focus {
+  background: #f1f3f4;
+  outline: none;
+}
+.englint-tools button:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: -2px;
+}
+
+/* A result as a word diff: removed words struck through in red, added ones in green. */
+.englint-tools del {
+  color: #d93025;
+  text-decoration: line-through;
+}
+.englint-tools ins {
+  color: #188038;
+  background: #e6f4ea;
+  text-decoration: none;
+  border-radius: 2px;
+}
+/* A removed part is always right before its added one, with no space at the joint ("waited for" then
+   "dragged" read "waited fordragged"): a gap between them. A margin, not a space, so a copy gains none. */
+.englint-tools del + ins {
+  margin-inline-start: 0.25em;
+}
+
+.englint-tools-input {
+  display: block;
+  box-sizing: border-box;
+  width: calc(100% - 16px);
+  margin: 4px 8px;
+  padding: 6px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  background: #fff;
+  color: #202124;
+  font: inherit;
+}
+.englint-tools-input:focus {
+  outline: 2px solid #1a73e8;
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+.englint-tools-weakness {
+  color: #3c4043;
+}
+/* Sound like me: the patterns found above its version; a version that changes a claim is shown, not a button. */
+.englint-tools-tells,
+.englint-tools-note {
+  color: #3c4043;
+  overflow-wrap: anywhere;
+}
+.englint-tools-version {
+  padding: 8px 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Read by a screen reader only (Copy's confirmation). */
+.englint-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* A follow-up's answer: the model's few sentences, line breaks kept. */
+.englint-tools-message {
+  color: #3c4043;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.englint-tools-input:disabled {
+  background: #f8f9fa;
+  color: #5f6368;
+}
+.englint-tools-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.englint-tools-word {
+  font-weight: 600;
+}
+.englint-tools-nuance {
+  color: #5f6368;
+  font-size: 13px;
+}
+.englint-tools-error {
+  color: #3c4043;
+}
+
+.englint-tools-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  color: #5f6368;
+}
+.englint-tools-spinner {
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 2px solid #dadce0;
+  border-top-color: #1a73e8;
+  border-radius: 50%;
+  animation: englint-spin 800ms linear infinite;
+}
+@keyframes englint-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* No movement: no draw-in, no card or popover slide or scale, no spinning. The tint and the flash only fade. */
+@media (prefers-reduced-motion: reduce) {
+  .englint-underline {
+    transition: none;
+  }
+  .englint-underline.draw::before,
+  .englint-card,
+  .englint-undo,
+  .englint-tools,
+  .englint-tools-spinner,
+  .englint-badge-spinner {
+    animation: none;
+  }
+  .englint-badge {
+    transition: none;
+  }
+}
+
+/* The button next to a field's selection (SelectionButton.tsx). The layer is click-through; the button is not. */
+.englint-select-btn {
+  position: fixed;
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fffdf7;
+  border: 1px solid #dadce0;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.englint-select-btn:hover {
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(60, 64, 67, 0.45);
+}
+.englint-select-btn:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 1px;
+}
+
+/*
+ * The badge in the focused field's corner (Badge.tsx): 20 px, 60% opaque until hovered. The layer is
+ * click-through; the badge is not. Colours as the toolbar badge's, plus blue (suggestions only) and green.
+ */
+.englint-badge {
+  position: fixed;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  font: 600 11px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3);
+  opacity: 0.6;
+  transition: opacity 120ms ease-out;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.englint-badge:hover,
+.englint-badge:focus-visible {
+  opacity: 1;
+}
+.englint-badge:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 1px;
+}
+.englint-badge.red { background: #d93025; }
+.englint-badge.blue { background: #1a73e8; }
+.englint-badge.green { background: #1e8e3e; }
+.englint-badge.grey { background: #80868b; }
+.englint-badge.amber { background: #f29900; }
+/* "99+" */
+.englint-badge-text.long {
+  font-size: 8px;
+}
+/* Before the field's first answer. */
+.englint-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+}
+.englint-badge-spinner {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: englint-spin 800ms linear infinite;
+}

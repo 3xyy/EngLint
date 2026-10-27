@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fake Docs list</title>
+<!--
+  A Docs page that is not the editor (like docs.google.com/document/u/0/, the docs list): the Docs content
+  scripts match it, the annotate API answers, and there is text but no editor and no rects. EngLint must
+  stay quiet here: no fallback notice, no D badge.
+-->
+</head>
+<body>
+<h1>Recent documents</h1>
+<ul><li>EngLint test doc</li><li>Quarterly Notes</li></ul>
+<script>
+  if (window._docs_annotate_canvas_by_ext) {
+    const api = {
+      getText: () => '\u0003Recent documents\n',
+      getAnnotations: () => [],
+      getSelection: () => [{ start: 0, end: 0 }],
+      setSelection: () => {},
+    };
+    window._docs_annotate_getAnnotatedText = async () => api;
+  }
+</script>
+</body>
+</html>

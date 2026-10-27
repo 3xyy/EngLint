@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>EngLint e2e: scrolling</title>
+    <link rel="icon" href="data:," />
+    <!--
+      Fields in the scroll setups the underline layer is anchored by (overlay/anchor.ts):
+      #pos-ta, #pos-ce: inside a positioned, scrollable box (the box is the anchor: native scrolling).
+      #static-ta: inside a scrollable box that is not positioned (no anchor: the fixed-layer fallback).
+      #doc-ta: on the long page itself (the document is the anchor).
+      #slot-ta: slotted (named slot) into a closed shadow root of a positioned host, inside a static
+        scroller there. chrome.dom finds the root, the walk follows the slot to that scroller, and with
+        nothing positioned up to it: the fixed-layer fallback.
+      #wrap-ce: a narrow contenteditable in a positioned box: every word wraps to its own 24px line.
+      #comp-ta: slotted into a closed shadow root's default slot, under a positioned host. The page records
+        whether anything of ours was ever slotted (window.slottedLayer) and exposes window.compLayer().
+      #hostile-ta: in a positioned box that removes every child it didn't start with, as soon as it appears
+        (until window.hostileOff is set).
+      #z-ta: a textarea with its own stacking level (position: relative; z-index: 5; opaque background) in a
+        positioned scroller. #zwrap-ta: inside such a wrapper (the wrapper is then its anchor).
+      #zflex-ta: a static textarea that is a flex item with z-index: 5 and an opaque background (a flex item
+        stacks with its z-index, positioned or not), in a positioned scroller.
+      #inner-ce: a contenteditable in a positioned box whose text sits in a scroller of its own inside the
+        field (#inner-scroll: a code block or a wide table, say).
+    -->
+    <style>
+      body { margin: 0; padding: 40px; font-family: sans-serif; }
+      .box { width: 520px; height: 200px; overflow: auto; border: 1px solid #ccc; margin-bottom: 24px; }
+      .box.positioned { position: relative; }
+      .spacer { height: 100px; }
+      .tail { height: 400px; }
+      textarea, .ed {
+        display: block;
+        box-sizing: border-box;
+        width: 480px;
+        padding: 8px;
+        border: 1px solid #888;
+        font: 16px/24px monospace;
+      }
+      textarea { height: 96px; resize: none; }
+      .ed { min-height: 42px; }
+      .ed p { margin: 0; }
+      #page-tail { height: 3000px; }
+    </style>
+  </head>
+  <body>
+    <div id="pos-ta-box" class="box positioned"><div class="spacer"></div><textarea id="pos-ta"></textarea><div class="tail"></div></div>
+    <div id="pos-ce-box" class="box positioned"><div class="spacer"></div><div id="pos-ce" class="ed" contenteditable="true"></div><div class="tail"></div></div>
+    <div id="static-box" class="box"><div class="spacer"></div><textarea id="static-ta"></textarea><div class="tail"></div></div>
+    <textarea id="doc-ta"></textarea>
+    <div id="slot-host" style="position: relative; margin-top: 24px"><textarea id="slot-ta" slot="field"></textarea></div>
+    <div id="wrap-box" class="box positioned"><div class="spacer"></div><div id="wrap-ce" class="ed" contenteditable="true" style="width: 78px"></div><div class="tail"></div></div>
+    <div id="comp-host" style="position: relative; margin-top: 24px"><textarea id="comp-ta"></textarea></div>
+    <div id="hostile-box" class="box positioned"><div class="spacer"></div><textarea id="hostile-ta"></textarea><div class="tail"></div></div>
+    <div id="z-box" class="box positioned"><div class="spacer"></div><textarea id="z-ta" style="position: relative; z-index: 5; background: #fff"></textarea><div class="tail"></div></div>
+    <div id="zwrap-box" class="box positioned"><div class="spacer"></div><div style="position: relative; z-index: 5; background: #fff"><textarea id="zwrap-ta"></textarea></div><div class="tail"></div></div>
+    <div id="zflex-box" class="box positioned"><div class="spacer"></div><div style="display: flex"><textarea id="zflex-ta" style="z-index: 5; background: #fff"></textarea></div><div class="tail"></div></div>
+    <div id="inner-box" class="box positioned"><div class="spacer"></div><div id="inner-ce" class="ed" contenteditable="true"><div id="inner-scroll" style="height: 48px; overflow-y: auto"><p>I has a cat.</p><p>Two.</p><p>Three.</p><p>Four.</p></div></div><div class="tail"></div></div>
+    <div id="page-tail"></div>
+    <script>
+      document.getElementById('slot-host').attachShadow({ mode: 'closed' }).innerHTML =
+        '<div style="overflow: auto; height: 120px"><slot name="field"></slot></div>';
+
+      (() => {
+        const root = document.getElementById('comp-host').attachShadow({ mode: 'closed' });
+        root.innerHTML = '<div class="inner"><slot></slot></div>';
+        const slot = root.querySelector('slot');
+        window.slottedLayer = false;
+        slot.addEventListener('slotchange', () => {
+          if (slot.assignedElements().some((el) => el.localName === 'englint-field-layer')) window.slottedLayer = true;
+        });
+        window.compLayer = () => root.querySelector('englint-field-layer');
+      })();
+
+      (() => {
+        const box = document.getElementById('hostile-box');
+        const own = new Set(box.children);
+        window.hostileRemovals = 0;
+        new MutationObserver(() => {
+          if (window.hostileOff) return;
+          for (const el of Array.from(box.children)) {
+            if (own.has(el)) continue;
+            el.remove();
+            window.hostileRemovals++;
+          }
+        }).observe(box, { childList: true });
+      })();
+    </script>
+  </body>
+</html>

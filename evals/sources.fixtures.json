@@ -1,0 +1,18 @@
+[
+  {"id":"standard-ok-dw1","mode":"standard","text":"I had had enough.","expect":[]},
+  {"id":"standard-ok-dw2","mode":"standard","text":"It was very very good.","expect":[]},
+  {"id":"standard-ok-dw3","mode":"standard","text":"He came in in a hurry.","expect":[]},
+  {"id":"standard-ok-dw4","mode":"standard","text":"What it is is a mess.","expect":[]},
+  {"id":"essay-ok-acr1","mode":"essay","text":"I joined a STEM program in ninth grade.","expect":[]},
+  {"id":"essay-ok-acr2","mode":"essay","text":"I built a STEAM lab in our garage.","expect":[]},
+  {"id":"essay-ok-acr3","mode":"essay","text":"I hired an SAT tutor for the summer.","expect":[]},
+  {"id":"essay-ok-acr4","mode":"essay","text":"I visited an MIT lab with my uncle.","expect":[]},
+  {"id":"essay-ok-acr5","mode":"essay","text":"I attended an MUN conference in Boston.","expect":[]},
+  {"id":"essay-ok-acr6","mode":"essay","text":"I joined a STEM-focused club.","expect":[]},
+  {"id":"essay-ok-acr7","mode":"essay","text":"She worked for an NGO in Lima.","expect":[]},
+  {"id":"essay-ok-acr8","mode":"essay","text":"We learned an HTML trick in class.","expect":[]},
+  {"id":"essay-ok-acr9","mode":"essay","text":"I studied for an SAT's math section.","expect":[]},
+  {"id":"essay-ok-acr10","mode":"essay","text":"I studied for an SAT’s math section.","expect":[]},
+  {"id":"essay-ok-acr11","mode":"essay","text":"I toured an MIT's lab last summer.","expect":[]},
+  {"id":"essay-ok-acr12","mode":"essay","text":"I hired an SATs tutor.","expect":[]}
+]

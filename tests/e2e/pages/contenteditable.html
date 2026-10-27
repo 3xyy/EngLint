@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>EngLint e2e: contenteditable</title>
+    <link rel="icon" href="data:," />
+    <style>
+      body { margin: 0; padding: 40px; font-family: sans-serif; }
+      .ed {
+        box-sizing: border-box;
+        width: 480px;
+        min-height: 42px;
+        margin-bottom: 16px;
+        padding: 8px;
+        border: 1px solid #888;
+        font: 16px/24px monospace;
+      }
+      .ed p { margin: 0; }
+      #far { margin-top: 40px; }
+    </style>
+  </head>
+  <body>
+    <!-- No formatting whitespace inside the editors: it would be text the user never typed. -->
+    <div id="ce" class="ed" contenteditable="true"></div>
+    <div id="three" class="ed" contenteditable="true"><p>First paragraph is <b>fine</b>.</p><p>The second one too.</p><p>She go home.</p></div>
+    <div id="nested" class="ed" contenteditable="true"><p>Outer text here.</p><p>I has a <span id="chip" tabindex="-1">cat</span>.</p></div>
+    <div id="model" class="ed" contenteditable="true"></div>
+    <div id="nbsp" class="ed" contenteditable="true"><p>I have a&nbsp;apple.</p></div>
+    <p id="far">Nothing to see here.</p>
+    <script>
+      // #model behaves like a model-driven editor (Lexical, ProseMirror): its DOM always follows its own
+      // model, so DOM edits it did not make (execCommand, typing) are put back at once. `?accept=` lists
+      // the events it takes: beforeinput (insertReplacementText), paste, both (comma-separated), or none.
+      // It cancels a beforeinput only when it takes it, and cancels every paste. `?delay=` (ms) applies
+      // the edit later, the way editors that batch their updates do. window.applied counts edits.
+      (() => {
+        const params = new URLSearchParams(location.search);
+        const accept = new Set((params.get('accept') ?? 'none').split(','));
+        const delay = Number(params.get('delay') ?? 0);
+        const ed = document.getElementById('model');
+        const lines = ['I has a cat.'];
+        window.applied = 0;
+
+        const observer = new MutationObserver(() => render());
+        function render() {
+          ed.replaceChildren(...lines.map((l) => Object.assign(document.createElement('p'), { textContent: l })));
+          observer.takeRecords();
+        }
+
+        const pointOf = (node, offset) => {
+          const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+          const p = el.closest('#model > p');
+          return { line: p ? [...ed.children].indexOf(p) : -1, offset: node.nodeType === Node.TEXT_NODE ? offset : 0 };
+        };
+        const apply = (range, text) => {
+          const a = pointOf(range.startContainer, range.startOffset);
+          const b = pointOf(range.endContainer, range.endOffset);
+          if (a.line < 0 || a.line !== b.line) return;
+          const run = () => {
+            lines[a.line] = lines[a.line].slice(0, a.offset) + text + lines[a.line].slice(b.offset);
+            window.applied++;
+            render();
+          };
+          if (delay) setTimeout(run, delay);
+          else run();
+        };
+
+        ed.addEventListener('beforeinput', (e) => {
+          if (e.inputType !== 'insertReplacementText' || !accept.has('beforeinput')) return;
+          e.preventDefault();
+          apply(e.getTargetRanges()[0], e.dataTransfer.getData('text/plain'));
+        });
+        ed.addEventListener('paste', (e) => {
+          e.preventDefault();
+          if (accept.has('paste')) apply(getSelection().getRangeAt(0).cloneRange(), e.clipboardData.getData('text/plain'));
+        });
+
+        render();
+        observer.observe(ed, { characterData: true, childList: true, subtree: true });
+      })();
+    </script>
+  </body>
+</html>

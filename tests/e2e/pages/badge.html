@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>EngLint e2e: badge</title>
+    <link rel="icon" href="data:," />
+    <style>
+      body { margin: 0; padding: 40px; font-family: sans-serif; }
+      /* Six 24 px lines fill the client box (158 px, less 16 px of padding) but for 2 px: the sixth is the last line. */
+      #ta {
+        display: block;
+        box-sizing: border-box;
+        width: 480px;
+        height: 160px;
+        padding: 8px;
+        border: 1px solid #888;
+        font: 16px/24px monospace;
+        resize: none;
+      }
+      /* As #ta, but resizable (the browser's default): its grip is in the bottom-right corner. */
+      #grip {
+        display: block;
+        box-sizing: border-box;
+        width: 480px;
+        height: 160px;
+        margin-top: 24px;
+        padding: 8px;
+        border: 1px solid #888;
+        font: 16px/24px monospace;
+      }
+      /* Another extension's badge, placed by a test. */
+      #foreign { position: fixed; width: 20px; height: 20px; border-radius: 50%; background: #15c39a; z-index: 10; }
+    </style>
+  </head>
+  <body>
+    <textarea id="ta"></textarea>
+    <button id="away" type="button">Elsewhere</button>
+    <textarea id="grip"></textarea>
+  </body>
+</html>

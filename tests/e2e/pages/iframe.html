@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>EngLint e2e: iframe</title>
+    <link rel="icon" href="data:," />
+    <style>
+      body { margin: 0; padding: 20px; font-family: sans-serif; }
+      #child { display: block; width: 640px; height: 480px; border: 1px solid #888; }
+    </style>
+  </head>
+  <body>
+    <textarea id="top" rows="2" cols="40"></textarea>
+    <p>The textarea below lives in an iframe.</p>
+    <iframe id="child" src="textarea.html"></iframe>
+  </body>
+</html>

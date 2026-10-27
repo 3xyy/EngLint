@@ -1,0 +1,11 @@
+node_modules/
+.output/
+.output-e2e/
+.wxt/
+dist/
+.env
+.env.*
+.DS_Store
+evals/private/
+test-results/
+playwright-report/

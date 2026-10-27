@@ -1,0 +1,6 @@
+{
+  "source": "getText() of 'EngLint test doc', recorded 2026-10-18 at 100% zoom",
+  "text": "\u0003Quarterly Notes\nI has a cat and she likes to sleep on the sofa.\nTheir going to the store after lunch, and they will buy teh bread.\n👋 Hello everyone, we is meeting tomorow at noon.\n This line starts with one leading space and it contain a mistake.\nThis paragraph is clean. It has no spelling or grammar problems at all.\nShopping list:\nApples and oranges\nBread and buter\nMilk\n\n\u0010\u0012\u001cName\n\u001cNote\n\u0012\u001cAlice\n\u001cAlice have two dogs.\n\u0011\n",
+  "length": 423,
+  "selectionAtEnd": [{ "start": 420, "end": 420 }]
+}
