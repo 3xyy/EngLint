@@ -124,46 +124,70 @@ test('underlines a mocked error', async ({ page, pagesURL, mock }) => {
   expect(box.y + box.height).toBeLessThanOrEqual(geo.top + 1 + 8 + 24 + 1);
 });
 
-test('card shows only the fix and a Dismiss button as wide as its word', async ({ page, pagesURL, mock }) => {
+test('the card says what type of change it is: its label, the change in its context, the reason, then Accept and Dismiss', async ({
+  page,
+  pagesURL,
+  mock,
+}) => {
   mock.respond(hasCat);
   await openPage(page, pagesURL);
-  await typeInTextarea(page, 'I has a cat.');
+  await typeInTextarea(page, 'We all knew it. Last week I has a cat called Ink and a dog.');
   await expect(errorUnderline(page)).toBeVisible({ timeout: 3000 });
 
   await pointAt(page, '.englint-underline.error');
   await expect(card(page)).toBeVisible();
-  await expect(card(page)).not.toContainText('Correctness');
-  await expect(card(page)).not.toContainText('Use "have" with "I".');
-  await expect(card(page).locator('s, .englint-card-original, .englint-card-category, .englint-card-reason')).toHaveCount(0);
-  await expect(page.locator('.englint-card-fix')).toHaveText('have');
-  await expect(card(page).locator('button')).toHaveCount(2);
-  await expect(card(page)).toHaveText('haveDismiss');
-  await expect(page.locator('.englint-card-dismiss')).toHaveText('Dismiss');
-  // Dismiss is only as wide as its label plus padding, at the left of the card's bottom row.
-  const dismiss = page.locator('.englint-card-dismiss');
+  await expect(card(page).locator('.el-type-text')).toHaveText('Correctness · Fix subject-verb agreement');
+  // Six words each side, from the field's text, cut with "…".
+  await expect(card(page).locator('.englint-card-preview')).toHaveText('…all knew it. Last week I hashave a cat called Ink and a…');
+  await expect(card(page).locator('.englint-card-preview del')).toHaveText('has');
+  await expect(card(page).locator('.englint-card-preview ins')).toHaveText('have');
+  await expect(card(page).locator('.englint-card-reason')).toHaveText('Use "have" with "I".');
+  await expect(card(page).getByRole('button')).toHaveText(['', 'Accept', 'Dismiss']);
+  await expect(card(page).getByRole('button', { name: 'More actions' })).toBeVisible();
+  await expect(card(page).getByRole('button', { name: "Accept: replace 'has' with 'have'" })).toBeVisible();
   await card(page).evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished))); // measured at full size
-  const [c, d] = [(await card(page).boundingBox())!, (await dismiss.boundingBox())!];
-  const fit = await dismiss.evaluate((el) => {
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const cs = getComputedStyle(el);
-    return { label: range.getBoundingClientRect().width, padding: parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) };
-  });
-  expect(Math.abs(d.width - fit.label - fit.padding)).toBeLessThanOrEqual(1);
-  expect(d.width).toBeLessThan(c.width / 2);
-  expect(Math.abs(d.x - (c.x + 1))).toBeLessThanOrEqual(1); // inside the card's 1px border
-  // Same colours and hover as before.
-  expect(await dismiss.evaluate((el) => [getComputedStyle(el).color, getComputedStyle(el).backgroundColor])).toEqual([
-    'rgb(95, 99, 104)',
-    'rgba(0, 0, 0, 0)',
-  ]);
-  await dismiss.hover();
-  await expect
-    .poll(() => dismiss.evaluate((el) => [getComputedStyle(el).color, getComputedStyle(el).backgroundColor]))
-    .toEqual(['rgb(32, 33, 36)', 'rgb(241, 243, 244)']);
+  expect((await card(page).boundingBox())!.width).toBe(340);
+  // The design system's colours: the accent primary, the del and ins colours.
+  const colour = (sel: string, prop: 'color' | 'backgroundColor') => card(page).locator(sel).evaluate((el, prop) => getComputedStyle(el)[prop], prop);
+  expect(await colour('.englint-card-accept', 'backgroundColor')).toBe('rgb(79, 70, 229)');
+  expect(await colour('.englint-card-preview del', 'color')).toBe('rgb(194, 65, 75)');
+  expect(await colour('.englint-card-preview ins', 'backgroundColor')).toBe('rgb(233, 248, 238)');
 });
 
-test('clicking the fix accepts and undo restores', async ({ page, pagesURL, mock }) => {
+test('a long reason is clamped to two lines', async ({ page, pagesURL, mock }) => {
+  const reason = 'Use "have" with "I": the verb agrees with its subject, and "I" takes "have" in the present tense, as "you" and "we" and "they" all do.';
+  mock.respond(issuesFor((t) => (t.includes('I has a cat') ? [{ ...HAS, reason }] : [])));
+  await openPage(page, pagesURL);
+  await typeInTextarea(page, 'I has a cat.');
+  await expect(errorUnderline(page)).toBeVisible({ timeout: 3000 });
+  await pointAt(page, '.englint-underline.error');
+  const box = card(page).locator('.englint-card-reason');
+  await expect(box).toHaveText(reason);
+  const fit = await box.evaluate((el) => ({ shown: el.clientHeight, all: el.scrollHeight, line: parseFloat(getComputedStyle(el).lineHeight) }));
+  expect(Math.round(fit.shown / fit.line)).toBe(2);
+  expect(fit.all).toBeGreaterThan(fit.shown);
+});
+
+test('from the keyboard: Enter in the card accepts; Escape closes it', async ({ page, pagesURL, mock }) => {
+  mock.respond(hasCat);
+  await openPage(page, pagesURL);
+  await typeInTextarea(page, 'I has a cat.');
+  await expect(errorUnderline(page)).toBeVisible({ timeout: 3000 });
+  await pointAt(page, '.englint-underline.error');
+  await card(page).focus();
+  await page.keyboard.press('Escape');
+  await expect(card(page)).toBeHidden();
+  await expect(page.locator('#ta')).toHaveValue('I has a cat.');
+
+  await page.mouse.move(1, 1);
+  await pointAt(page, '.englint-underline.error');
+  await card(page).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#ta')).toHaveValue('I have a cat.');
+  await expect(card(page)).toBeHidden();
+});
+
+test('Accept accepts and undo restores', async ({ page, pagesURL, mock }) => {
   mock.respond(hasCat);
   await openPage(page, pagesURL);
   await typeInTextarea(page, 'I has a cat.');
@@ -171,7 +195,7 @@ test('clicking the fix accepts and undo restores', async ({ page, pagesURL, mock
   await pointAt(page, '.englint-underline.error');
   await expect(card(page)).toBeVisible();
 
-  await page.locator('.englint-card-fix').click();
+  await page.locator('.englint-card-accept').click();
   const ta = page.locator('#ta');
   await expect(ta).toHaveValue('I have a cat.');
   await expect(ta).toBeFocused();
@@ -231,7 +255,7 @@ test('dismiss hides and survives recheck', async ({ page, pagesURL, mock }) => {
   expect(mock.requests.length).toBe(2);
 });
 
-test('a comment-only note is underlined as a suggestion; its card offers "Rewrite this sentence" and no fix', async ({
+test('a comment-only note is underlined as a suggestion; its card offers "Rewrite sentence" and no Accept', async ({
   page,
   pagesURL,
   mock,
@@ -244,8 +268,8 @@ test('a comment-only note is underlined as a suggestion; its card offers "Rewrit
   await expect(page.locator('.englint-underline.suggestion')).toHaveCount(1, { timeout: 3000 });
   const box = (await page.locator('.englint-underline').first().boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(card(page).getByRole('button', { name: 'Rewrite this sentence' })).toBeVisible();
-  await expect(card(page).locator('.englint-card-fix')).toHaveCount(0);
+  await expect(card(page).getByRole('button', { name: 'Rewrite sentence' })).toBeVisible();
+  await expect(card(page).locator('.englint-card-accept')).toHaveCount(0);
 });
 
 test('password and text inputs are never sent', async ({ page, pagesURL, mock }) => {
@@ -356,7 +380,7 @@ test('a fix the page rejects is copied to the clipboard instead', async ({ page,
     ta.addEventListener('input', () => (ta.value = 'I has a cat.'));
   });
   await pointAt(page, '.englint-underline.error');
-  await page.locator('.englint-card-fix').click();
+  await page.locator('.englint-card-accept').click();
 
   await expect(page.locator('.englint-notice')).toHaveText("Couldn't apply here — copied to clipboard.");
   await expect(page.locator('#ta')).toHaveValue('I has a cat.');
@@ -414,7 +438,7 @@ test('caret moving into an issue opens its card', async ({ page, pagesURL, mock 
   await page.locator('#ta').evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(5, 5));
   await page.keyboard.press('ArrowLeft'); // caret 4: inside "has"
   await expect(card(page)).toBeVisible();
-  await expect(page.locator('.englint-card-fix')).toHaveText('have');
+  await expect(page.locator('.englint-card-preview ins')).toHaveText('have');
   await page.waitForTimeout(700); // opened without the pointer: it doesn't close on the hover timer
   await expect(card(page)).toBeVisible();
 });

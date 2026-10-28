@@ -3,6 +3,8 @@
  *   npm run eval              full run: key check, prefix tokens, cache check, fixtures
  *   npm run eval -- --dry-run validate fixtures and show the batches; no API calls
  *   npm run eval -- --fixtures <path>   use another fixture file (e.g. evals/holdout.fixtures.json)
+ *     evals/grammarly-compare.fixtures.json: two paragraphs from a side-by-side with Grammarly; their labelled
+ *     suggestions are reported (found, expected fix, hidden by the client) beside the errors
  *   npm run eval -- --suite suggestions|voice [--runs 2] [--dry-run] [--defaults (suggestions: run each fixture with its mode's default families)]
  *     the suggestion suites (pooled main + holdout; voice = clean essay paragraphs)
  * The key is read from .env as data and never printed.
@@ -21,7 +23,7 @@ import { splitParagraphs } from '../src/core/paragraphs';
 import { isCasualSuppressedEdit, isSuppressedEdit } from '../src/core/suppress';
 import type { Dialect, FamilyToggle, FamilyToggles, LocatedIssue, Mode, Paragraph, RawIssue, SuggestionFamily } from '../src/core/types';
 import { readEnvKey } from './read-env';
-import { scoreSuggestions, type SuggestionScore } from './suggestion-scoring';
+import { reportLabelledSuggestions, scoreSuggestions, type LabelledTally, type SuggestionScore } from './suggestion-scoring';
 
 const MAIN_FIXTURES = 'evals/live-check.fixtures.json';
 const PRIVATE_DIR = 'evals/private';
@@ -44,7 +46,9 @@ const FixtureSchema = z.object({
   dialect: z.enum(['en-US', 'en-GB']).optional(),
   text: z.string(),
   expect: z.array(z.object({ original: z.string(), replacement: z.string() })),
-  suggest: z.array(z.object({ original: z.string(), family: FamilySchema, kind: z.string().optional() })).optional(),
+  suggest: z
+    .array(z.object({ original: z.string(), family: FamilySchema, kind: z.string().optional(), replacement: z.string().optional() }))
+    .optional(),
   acceptable: z.array(z.object({ original: z.string(), family: FamilySchema })).optional(),
 });
 type Fixture = z.infer<typeof FixtureSchema>;
@@ -82,6 +86,10 @@ function loadFixtures(path: string): { fixtures: Fixture[]; privateCount: number
       if (f.mode === 'casual' && e.original !== e.replacement && e.original.toLowerCase() === e.replacement.toLowerCase()) {
         problems.push(`${f.id}: Casual mode never flags capitalization`);
       }
+    }
+    for (const l of [...(f.suggest ?? []), ...(f.acceptable ?? [])]) {
+      const n = occurrences(f.text, l.original);
+      if (n !== 1) problems.push(`${f.id}: label "${l.original}" occurs ${n} times; it must occur exactly once`);
     }
   }
   const withErrors = fixtures.filter((f) => f.expect.length > 0).length;
@@ -638,6 +646,7 @@ async function main(): Promise<number> {
     MODES.map((m) => [m, { fixtures: 0, flagged: 0, correct: 0, expected: 0, found: 0, fixMatch: 0, clarity: 0, dropped: 0 }]),
   );
   const details: string[] = [];
+  const labelled: LabelledTally = { found: 0, total: 0, fixes: 0, fixTotal: 0, ok: 0, fp: 0 };
   for (const f of fixtures) {
     const items = [...rawFor.keys()].filter((it) => it.fixture === f);
     if (items.length === 0) {
@@ -694,9 +703,16 @@ async function main(): Promise<number> {
       if (errors.some((issue) => overlaps(issue, e))) s.found++;
       else details.push(`MISS     [${f.id}] ${JSON.stringify(f.text)}: expected "${e.original}" -> ${JSON.stringify(e.replacement)}`);
     }
-    for (const note of shown.filter((i) => i.severity === 'suggestion')) {
-      details.push(`CLARITY  [${f.id}] "${note.original}" -> ${JSON.stringify(note.replacement)} (${note.kind}: ${note.reason})`);
+    const suggestions = shown.filter((i) => i.severity === 'suggestion');
+    if (!hasLabels(f)) {
+      for (const note of suggestions) {
+        details.push(`CLARITY  [${f.id}] "${note.original}" -> ${JSON.stringify(note.replacement)} (${note.kind}: ${note.reason})`);
+      }
+      continue;
     }
+    const report = reportLabelledSuggestions(f.id, f, suggestions, items.flatMap((it) => rawFor.get(it)!));
+    details.push(...report.details);
+    for (const k of Object.keys(labelled) as (keyof LabelledTally)[]) labelled[k] += report.tally[k];
   }
 
   console.log('\nDetails:');
@@ -707,6 +723,12 @@ async function main(): Promise<number> {
       `${mode.padEnd(9)} ${String(s.fixtures).padStart(8)} ${String(s.flagged).padStart(8)} ${String(s.correct).padStart(8)} ` +
         `${ratio(s.correct, s.flagged).padStart(10)} ${String(s.expected).padStart(9)} ${String(s.found).padStart(6)} ` +
         `${ratio(s.found, s.expected).padStart(7)} ${`${s.fixMatch}/${s.correct}`.padStart(10)} ${String(s.clarity).padStart(8)} ${String(s.dropped).padStart(8)}`,
+    );
+  }
+  if (labelled.total > 0) {
+    console.log(
+      `labelled suggestions: ${labelled.found} of ${labelled.total} found, ${labelled.fixes} of ${labelled.fixTotal} with the expected fix; ` +
+        `shown ${labelled.ok + labelled.fp} (${labelled.ok} on a label, ${labelled.fp} not)`,
     );
   }
   if (missingIds) console.log(`paragraph ids missing from the model's results: ${missingIds}`);

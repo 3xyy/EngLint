@@ -4,6 +4,7 @@ import { CITATION_STYLES, claimAround, formatCitation, isWebUrl, siteOf, type Ci
 import { MAX_CLAIM_CHARS, MIN_CLAIM_CHARS } from '../../../core/review';
 import { CITATION_MAX_SEARCHES, CITATION_RESULTS_CHARS, costLabel, estimateCost, REVIEW_EXPECTED, type Pricing } from '../../../core/review-cost';
 import { sendMessage } from '../../../shared/messages';
+import { Button } from '../../../shared/ui/controls';
 import { citationStyleItem } from '../../../shared/settings';
 import { useSetting } from '../../../shared/use-setting';
 import { CopyButton } from '../Tools';
@@ -68,9 +69,9 @@ export function CitationCard({
         </select>
       </label>
       {hint && <p className="muted">{hint}</p>}
-      <button type="button" className="btn" disabled={!canRun} onClick={() => void run()}>
+      <Button size="sm" className="review-run" disabled={!canRun} onClick={() => void run()}>
         {cost ? C.runWithCost(cost) : C.run}
-      </button>
+      </Button>
       {usd === null && <p className="muted">{REVIEW_COPY.costUnknown}</p>}
       {current?.busy && <p className="muted" role="status">{REVIEW_COPY.searching}</p>}
       {current?.stop ? <p className="notice" role="alert">{REVIEW_COPY[current.stop]}</p> : <Problem run={current} spend={spend} />}

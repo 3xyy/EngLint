@@ -1,4 +1,7 @@
 /* Loaded into the overlay's shadow root (cssInjectionMode: 'ui'); page CSS never reaches it. */
+@import '../../shared/ui/tokens.css';
+@import '../../shared/ui/controls.css';
+@import '../../shared/ui/word-limit.css';
 
 .englint-layer {
   position: fixed;
@@ -8,12 +11,13 @@
 }
 
 /*
- * Underlines (also in each field layer's shadow root). The element is the rect's bottom strip; the bar is
- * its ::before, so the draw-in (a transform) never changes the element's own box.
+ * Underlines (also in each field layer's shadow root). The element is the rect's bottom strip; the line is
+ * its ::before, so the draw-in (a transform) never changes the element's own box. data-family picks the colour,
+ * data-line the line: errors solid, suggestions dotted, comment-only notes dashed.
  */
 .englint-underline {
   position: absolute;
-  height: 3px;
+  height: 2px;
   pointer-events: none;
   transition: height 80ms ease-out, margin-top 80ms ease-out;
 }
@@ -23,46 +27,38 @@
   inset: 0;
   transform-origin: left;
 }
-.englint-underline.error::before {
-  background: #e5483a;
-  border-radius: 1.5px;
+/*
+ * The family colours, as the light scheme's tokens in both schemes: an underline and its tint lie on the page's own
+ * background, which stays white on most fields when the system is dark, and the dark scheme's lighter colours fade
+ * there (green to 1.9:1). These mid tones hold 3:1 on white and stay visible on a dark page.
+ */
+[data-family='correctness'] { --el-fam: #e5484d; }
+[data-family='clarity'] { --el-fam: #2563eb; }
+[data-family='engagement'] { --el-fam: #16a34a; }
+[data-family='delivery'] { --el-fam: #9333ea; }
+[data-family='generic'] { --el-fam: #ea580c; }
+.englint-underline[data-line='solid']::before {
+  background: var(--el-fam);
+  border-radius: 1px;
 }
-/* Round dots, 3px apart: each 6px tile holds one dot as tall as the strip. Clarity is blue. */
-.englint-underline.suggestion::before {
-  background: radial-gradient(circle closest-side, #1a73e8 calc(100% - 0.5px), transparent 100%) left center / 6px 100% repeat-x;
-}
-/* Each other family: the same dots in its own colour; generic phrasing as dashes in the Delivery colour. */
-.englint-underline.fam-engagement::before {
-  background-image: radial-gradient(circle closest-side, #188038 calc(100% - 0.5px), transparent 100%);
-}
-.englint-underline.fam-delivery::before {
-  background-image: radial-gradient(circle closest-side, #8430ce calc(100% - 0.5px), transparent 100%);
+/* Round dots as tall as the strip, one per tile: 2px dots 2px apart (3px and 3px when active). */
+.englint-underline[data-line='dotted']::before {
+  background: radial-gradient(circle closest-side, var(--el-fam) calc(100% - 0.5px), transparent 100%) left center / 4px 100% repeat-x;
 }
 /* 4px dashes, 3px apart. */
-.englint-underline.fam-generic::before {
-  background-image: linear-gradient(90deg, #8430ce 4px, transparent 4px);
-  background-size: 7px 100%;
+.englint-underline[data-line='dashed']::before {
+  background: linear-gradient(90deg, var(--el-fam) 4px, transparent 4px) left center / 7px 100% repeat-x;
 }
-/* Hovered, or its card is open: darker and 1px thicker, growing upward (the bottom stays on the text). */
+/* Hovered, or its card is open: 1px thicker, growing upward (the bottom stays on the text). */
 .englint-underline.active {
-  height: 4px;
+  height: 3px;
   margin-top: -1px;
 }
-.englint-underline.error.active::before {
-  background: #c9362a;
-  border-radius: 2px;
+.englint-underline.active[data-line='solid']::before {
+  border-radius: 1.5px;
 }
-.englint-underline.suggestion.active::before {
-  background-image: radial-gradient(circle closest-side, #185abc calc(100% - 0.5px), transparent 100%);
-}
-.englint-underline.fam-engagement.active::before {
-  background-image: radial-gradient(circle closest-side, #0d652d calc(100% - 0.5px), transparent 100%);
-}
-.englint-underline.fam-delivery.active::before {
-  background-image: radial-gradient(circle closest-side, #681da8 calc(100% - 0.5px), transparent 100%);
-}
-.englint-underline.fam-generic.active::before {
-  background-image: linear-gradient(90deg, #681da8 4px, transparent 4px);
+.englint-underline.active[data-line='dotted']::before {
+  background-size: 6px 100%;
 }
 /* Shown for the first time in its field: draws from left to right, once. */
 .englint-underline.draw::before {
@@ -74,10 +70,11 @@
   }
 }
 
-/* The hovered (or carded) issue's text, tinted at once; it fades out when the pointer leaves. */
+/* The hovered (or carded) issue's text, tinted at once in its family's colour; it fades out when the pointer leaves. */
 .englint-tint {
   position: absolute;
   border-radius: 3px;
+  background: color-mix(in srgb, var(--el-fam) 14%, transparent);
   mix-blend-mode: multiply;
   pointer-events: none;
   opacity: 1;
@@ -88,19 +85,6 @@
     opacity: 0;
   }
 }
-.englint-tint.error {
-  background: rgba(229, 72, 58, 0.16);
-}
-.englint-tint.suggestion {
-  background: rgba(26, 115, 232, 0.14);
-}
-.englint-tint.fam-engagement {
-  background: rgba(24, 128, 56, 0.14);
-}
-.englint-tint.fam-delivery,
-.englint-tint.fam-generic {
-  background: rgba(132, 48, 206, 0.14);
-}
 .englint-tint.out {
   opacity: 0;
   transition: opacity 120ms ease-in;
@@ -110,7 +94,7 @@
 .englint-flash {
   position: absolute;
   border-radius: 3px;
-  background: rgba(30, 142, 62, 0.22);
+  background: color-mix(in srgb, var(--el-ins) 22%, transparent);
   pointer-events: none;
   animation: englint-flash 450ms ease-out both;
 }
@@ -120,24 +104,29 @@
   }
 }
 
+/*
+ * The suggestion card (Card.tsx): the type of change and "⋯", the change in its context, the reason, then the
+ * primary and Dismiss. It sets its own font and colours: inside the overlay, the host's reset leaves nothing to
+ * inherit.
+ */
 .englint-card {
   position: fixed;
   box-sizing: border-box;
-  width: 300px;
+  width: 340px;
   max-width: calc(100vw - 16px);
-  padding: 0;
-  overflow: hidden;
-  background: #fff;
-  color: #202124;
-  border: 1px solid #dadce0;
-  border-radius: 8px;
-  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.15), 0 1px 2px rgba(60, 64, 67, 0.3);
-  font: 14px/20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  padding: 10px 14px 14px;
+  background: var(--el-bg);
+  color: var(--el-text);
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-card);
+  box-shadow: var(--el-shadow);
+  font: 14px/1.45 var(--el-font);
   pointer-events: auto;
   text-align: left;
+  outline: none;
   /* Grows from the side nearest its text: top when below it, bottom when above (Card.tsx sets data-side). */
   transform-origin: top;
-  animation: englint-card-in 150ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  animation: englint-card-in 120ms ease-out both;
 }
 .englint-card[data-side='above'] {
   transform-origin: bottom;
@@ -145,132 +134,122 @@
 @keyframes englint-card-in {
   from {
     opacity: 0;
-    transform: translateY(4px) scale(0.98);
+    transform: scale(0.98);
   }
 }
 
-.englint-card-fix {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 14px;
-  border: 0;
-  border-radius: 0;
-  text-align: left;
-  background: #e6f4ea;
-  color: #188038;
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-}
-.englint-card-fix.delete {
-  color: #d93025; /* a deletion: the struck-through original is the fix */
-  background: #fce8e6;
-}
-.englint-card-fix:hover,
-.englint-card-fix:focus-visible {
-  background: #ceead6;
-}
-
-.englint-card-rewrite {
-  display: block;
-  width: fit-content; /* as wide as its label, at the card's left */
-  max-width: 100%;
-  box-sizing: border-box;
-  padding: 10px 14px;
-  border: 0;
-  border-radius: 0;
-  text-align: left;
-  background: #e8f0fe; /* the suggestion blue: a comment-only note has no fix, only this action */
-  color: #1a73e8;
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-}
-.englint-card-rewrite:hover,
-.englint-card-rewrite:focus-visible {
-  background: #d2e3fc;
-}
-
-/* Bottom row: Dismiss, then "Stop suggesting …" or "Add to dictionary". A label too long for the row wraps to the next line. */
-.englint-card-bar {
+/* The family dot and "{Family} · {action}", with "⋯" at the right; as tall as "⋯", so the label centres on it. */
+.englint-card-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  border-top: 1px solid #dadce0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  margin: 0 -6px 6px 0;
 }
-/* Each as wide as its words plus padding, from the left: never a full-width bar. */
-.englint-card-dismiss,
-.englint-card-secondary {
-  flex: 0 0 auto;
-  width: auto;
-  max-width: 100%;
+.englint-card-type {
+  flex: 1 1 auto;
+}
+.englint-card-more {
+  position: relative;
+  flex: none;
+}
+.englint-card-reason {
+  display: -webkit-box;
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: var(--el-text-2);
+  font: 13px/1.45 var(--el-font);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.englint-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+/* The "⋯" menu: under its button, at the card's right edge, over the card's text. */
+.englint-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 2;
   box-sizing: border-box;
-  padding: 8px 14px;
+  width: max-content;
+  min-width: 200px;
+  max-width: 280px;
+  padding: 4px;
+  background: var(--el-bg);
+  border: 1px solid var(--el-border);
+  border-radius: 10px;
+  box-shadow: var(--el-shadow);
+  transform-origin: top right;
+  animation: englint-card-in 120ms ease-out both;
+}
+.englint-menu-item {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 7px 10px;
   border: 0;
-  border-radius: 0;
+  border-radius: 6px;
   background: none;
-  color: #5f6368;
-  font: inherit;
+  color: var(--el-text);
+  font: 13px/1.35 var(--el-font);
   text-align: left;
   cursor: pointer;
 }
-.englint-card-dismiss:hover,
-.englint-card-dismiss:focus-visible,
-.englint-card-secondary:hover,
-.englint-card-secondary:focus-visible {
-  background: #f1f3f4;
-  color: #202124;
+.englint-menu-item:hover,
+.englint-menu-item:focus-visible {
+  background: var(--el-surface-2);
+  outline: none;
+}
+.englint-menu-item:focus-visible {
+  box-shadow: var(--el-focus);
 }
 
-.englint-card button:focus-visible {
-  outline: 2px solid #1a73e8;
-  outline-offset: 1px;
-}
-
-/* The undo chip (Card.tsx UndoChip): where the card was, for 5 s. */
+/*
+ * The undo chip and the offer chip (Card.tsx): where the card was, for 5 s. The card's surface, with its words and
+ * then small buttons (the offer's yes is the primary).
+ */
 .englint-undo {
   position: fixed;
   box-sizing: border-box;
-  max-width: calc(100vw - 16px);
+  max-width: min(400px, calc(100vw - 16px));
   display: flex;
   align-items: center;
-  padding: 0 0 0 14px;
-  background: #202124;
-  color: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.15), 0 1px 2px rgba(60, 64, 67, 0.3);
-  font: 14px/20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  gap: 4px;
+  padding: 6px 6px 6px 14px;
+  background: var(--el-bg);
+  color: var(--el-text);
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-card);
+  box-shadow: var(--el-shadow);
+  font: 13px/1.45 var(--el-font);
   pointer-events: auto;
   text-align: left;
   transform-origin: top;
-  animation: englint-card-in 150ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  animation: englint-card-in 120ms ease-out both;
 }
 .englint-undo[data-side='above'] {
   transform-origin: bottom;
 }
 .englint-undo-text {
-  padding: 8px 0;
+  flex: 1 1 auto;
+  margin-right: 6px;
+  overflow-wrap: anywhere;
 }
 .englint-undo-button {
-  flex: 0 0 auto;
-  margin-left: 4px;
-  padding: 8px 14px;
-  border: 0;
-  border-radius: 0 8px 8px 0;
-  background: none;
-  color: #8ab4f8;
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
+  flex: none;
 }
-.englint-undo-button:hover,
-.englint-undo-button:focus-visible {
-  background: rgba(255, 255, 255, 0.1);
-}
-.englint-undo-button:focus-visible {
-  outline: 2px solid #8ab4f8;
-  outline-offset: -2px;
+/* Undo: a text button in the accent colour. */
+.englint-undo-accent.el-btn-ghost {
+  color: var(--el-accent);
 }
 
 .englint-notice {
@@ -279,139 +258,361 @@
   bottom: 16px;
   max-width: 320px;
   padding: 10px 14px;
-  background: #202124;
-  color: #fff;
+  background: var(--el-text);
+  color: var(--el-bg);
   border-radius: 6px;
   font: 14px/20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   pointer-events: none;
 }
 
-/* The tools popover (ToolsPopover.tsx): the card's look and enter animation, 320px wide. */
+/*
+ * The selection bar (SelectionBar.tsx): a horizontal pill just above the selection. The layer is click-through;
+ * the bar is not. Improve leads in the accent colour; a "▾" button opens its menu under it.
+ */
+.englint-bar {
+  position: fixed;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  max-width: calc(100vw - 16px);
+  padding: 0 4px;
+  background: var(--el-bg);
+  color: var(--el-text);
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-pill);
+  box-shadow: var(--el-shadow);
+  font: 13px/1 var(--el-font);
+  white-space: nowrap;
+  pointer-events: auto;
+  text-align: left;
+  transform-origin: bottom left;
+  animation: englint-card-in 120ms ease-out both;
+}
+.englint-bar[data-side='below'] {
+  transform-origin: top left;
+}
+.englint-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  box-sizing: border-box;
+  height: 28px;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--el-radius-pill);
+  background: transparent;
+  color: var(--el-text);
+  font: 500 13px/1 var(--el-font);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.englint-bar-btn > svg {
+  flex: none;
+}
+.englint-bar-btn:hover,
+.englint-bar-btn[aria-expanded='true'] {
+  background: var(--el-surface-2);
+}
+.englint-bar-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--el-focus);
+}
+.englint-bar-btn:disabled {
+  background: none;
+  color: var(--el-text-3);
+  cursor: default;
+}
+.englint-bar-btn:disabled .englint-bar-chevron {
+  color: inherit;
+}
+.englint-bar-primary {
+  color: var(--el-accent);
+  font-weight: 600;
+}
+.englint-bar-primary:hover {
+  background: var(--el-accent-soft);
+}
+.englint-bar-chevron {
+  margin-right: -3px;
+  color: var(--el-text-3);
+}
+.englint-bar-sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--el-border);
+}
+/* A "▾" button and its menu, which hangs from the button's left edge (up, or from its right, where it must). */
+.englint-bar-group {
+  position: relative;
+  display: inline-flex;
+}
+.englint-bar-menu {
+  left: 0;
+  right: auto;
+  min-width: 168px;
+  transform-origin: top left;
+}
+.englint-bar-menu[data-up] {
+  top: auto;
+  bottom: calc(100% + 4px);
+  transform-origin: bottom left;
+}
+.englint-bar-menu[data-end] {
+  left: auto;
+  right: 0;
+}
+.englint-menu-item:disabled {
+  color: var(--el-text-3);
+  cursor: default;
+}
+.englint-menu-item:disabled:hover {
+  background: none;
+}
+/* A selection only some tools take: the buttons, then a line saying why, in a card-cornered bar. */
+.englint-bar-long {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  height: auto;
+  padding: 3px 4px 7px;
+  border-radius: var(--el-radius-card);
+}
+.englint-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+}
+.englint-bar-hint {
+  margin: 0;
+  padding: 2px 10px 0;
+  color: var(--el-text-2);
+  font: 12px/1.35 var(--el-font);
+  white-space: normal;
+}
+/* "Ask anything…": the bar becomes a box for the instruction. */
+.englint-bar-asking {
+  gap: 6px;
+  width: 360px;
+  padding: 0 4px 0 12px;
+}
+.englint-bar-ask-icon {
+  flex: none;
+  color: var(--el-accent);
+}
+.englint-bar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--el-text);
+  font: 14px/1.45 var(--el-font);
+  outline: none;
+}
+.englint-bar-input::placeholder {
+  color: var(--el-text-3);
+}
+.englint-bar-asking .el-btn {
+  border-radius: var(--el-radius-pill);
+}
+
+/*
+ * The tools results (ToolsPopover.tsx): the suggestion card's surface, 380px wide. A header names the action, with
+ * Close; each version is a card that applies it, with a Copy icon; the follow-up box closes it.
+ */
 .englint-tools {
   position: fixed;
   box-sizing: border-box;
-  width: 320px;
+  width: 380px;
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   overflow-y: auto;
-  padding: 4px 0;
-  background: #fff;
-  color: #202124;
-  border: 1px solid #dadce0;
-  border-radius: 8px;
-  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.15), 0 1px 2px rgba(60, 64, 67, 0.3);
-  font: 14px/20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  padding: 6px 0 4px;
+  background: var(--el-bg);
+  color: var(--el-text);
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-card);
+  box-shadow: var(--el-shadow);
+  font: 14px/1.45 var(--el-font);
   pointer-events: auto;
   text-align: left;
   outline: none;
   transform-origin: top;
-  animation: englint-card-in 150ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  animation: englint-card-in 120ms ease-out both;
 }
 .englint-tools[data-side='above'] {
   transform-origin: bottom;
 }
+.englint-tools-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 8px 0 14px;
+}
+.englint-tools-head-icon {
+  flex: none;
+  color: var(--el-accent);
+}
+.englint-tools-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--el-text);
+  font: 600 13px/1.45 var(--el-font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.englint-tools-body {
+  padding: 6px 0 0;
+}
 .englint-tools p {
   margin: 0;
-  padding: 8px 14px;
+  padding: 0 14px 10px;
 }
 
-/* Menu items, result rows, synonym options: full-width buttons. */
-.englint-tools-item,
-.englint-tools-row,
-.englint-tools-option,
-.englint-tools-more {
+/* A version: a card whose diff applies it, with a Copy icon at its top right. */
+.englint-tools-card {
+  position: relative;
+  margin: 0 12px 8px;
+  border: 1px solid var(--el-border);
+  border-radius: 10px;
+  background: var(--el-bg);
+  transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+.englint-tools-card:hover,
+.englint-tools-card:focus-within {
+  border-color: var(--el-accent);
+}
+.englint-tools-row {
   display: block;
-  width: 100%;
   box-sizing: border-box;
+  width: 100%;
   margin: 0;
-  padding: 6px 14px;
+  padding: 9px 40px 9px 12px;
   border: 0;
-  border-radius: 0;
+  border-radius: 10px;
   background: none;
-  color: inherit;
-  font: inherit;
+  color: var(--el-text-2);
+  font: 14px/1.45 var(--el-font);
   text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
-.englint-tools-row,
-.englint-tools-option {
-  padding: 8px 14px;
+.englint-tools-row:hover {
+  background: var(--el-surface);
+}
+.englint-tools-row:focus-visible {
+  outline: none;
+  background: var(--el-surface);
+}
+.englint-tools-copy {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+/* A version that changes a claim: the diff alone, the note, and Copy as a button. */
+.englint-tools-card-static {
+  padding: 9px 12px 10px;
+}
+.englint-tools-card-static:hover,
+.englint-tools-card-static:focus-within {
+  border-color: var(--el-border);
+}
+.englint-tools-version {
+  color: var(--el-text-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.englint-tools-row + .englint-tools-row,
-.englint-tools-option + .englint-tools-option {
-  border-top: 1px solid #f1f3f4;
-}
-.englint-tools-more {
-  color: #1a73e8;
-  font-weight: 500;
-  border-top: 1px solid #dadce0;
-}
-.englint-tools-item:hover,
-.englint-tools-item:focus,
-.englint-tools-row:hover,
-.englint-tools-row:focus,
-.englint-tools-option:hover,
-.englint-tools-option:focus,
-.englint-tools-more:hover,
-.englint-tools-more:focus {
-  background: #f1f3f4;
-  outline: none;
-}
-.englint-tools button:focus-visible {
-  outline: 2px solid #1a73e8;
-  outline-offset: -2px;
+.englint-tools .englint-tools-card-static .englint-tools-note {
+  padding: 6px 0 8px;
 }
 
-/* A result as a word diff: removed words struck through in red, added ones in green. */
+/* A result as a word diff, as on the suggestion card: removed words struck, added ones marked. */
 .englint-tools del {
-  color: #d93025;
+  color: var(--el-del);
   text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
 }
 .englint-tools ins {
-  color: #188038;
-  background: #e6f4ea;
+  padding: 1px 3px;
+  border-radius: 4px;
+  background: var(--el-ins-bg);
+  color: var(--el-ins);
+  font-weight: 600;
   text-decoration: none;
-  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 /* A removed part is always right before its added one, with no space at the joint ("waited for" then
    "dragged" read "waited fordragged"): a gap between them. A margin, not a space, so a copy gains none. */
 .englint-tools del + ins {
-  margin-inline-start: 0.25em;
+  margin-inline-start: 4px;
+}
+
+/* Fit a word limit: the picker and the cuts (word-limit.css), inset like the rest of the body. */
+.englint-tools-limit {
+  padding: 0 14px 12px;
+}
+
+/* Show 3 rewrites, Show the version, Retry: a text button in the accent colour. */
+.englint-tools-more.el-btn-ghost {
+  margin: 0 8px 8px;
+  color: var(--el-accent);
 }
 
 .englint-tools-input {
   display: block;
   box-sizing: border-box;
-  width: calc(100% - 16px);
-  margin: 4px 8px;
-  padding: 6px 8px;
-  border: 1px solid #dadce0;
-  border-radius: 4px;
-  background: #fff;
-  color: #202124;
-  font: inherit;
+  width: calc(100% - 24px);
+  height: 34px;
+  margin: 4px 12px 8px;
+  padding: 0 10px;
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-control);
+  background: var(--el-bg);
+  color: var(--el-text);
+  font: 14px/1.45 var(--el-font);
+}
+.englint-tools-input::placeholder {
+  color: var(--el-text-3);
 }
 .englint-tools-input:focus {
-  outline: 2px solid #1a73e8;
-  outline-offset: -1px;
-  border-color: transparent;
+  outline: none;
+  border-color: var(--el-accent);
+  box-shadow: var(--el-focus);
+}
+.englint-tools-input:disabled {
+  background: var(--el-surface);
+  color: var(--el-text-3);
 }
 
-.englint-tools-weakness {
-  color: #3c4043;
-}
-/* Sound like me: the patterns found above its version; a version that changes a claim is shown, not a button. */
+/* The Essay critique: one short line above its light fix. */
+.englint-tools-weakness,
 .englint-tools-tells,
-.englint-tools-note {
-  color: #3c4043;
+.englint-tools-note,
+.englint-tools-message,
+.englint-tools-error {
+  color: var(--el-text-2);
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
-.englint-tools-version {
-  padding: 8px 14px;
+/* A follow-up's answer: the model's few sentences, line breaks kept. */
+.englint-tools-message {
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
+}
+.englint-tools-error {
+  color: var(--el-text);
 }
 /* Read by a screen reader only (Copy's confirmation). */
 .englint-sr-only {
@@ -425,45 +626,57 @@
   white-space: nowrap;
   border: 0;
 }
-/* A follow-up's answer: the model's few sentences, line breaks kept. */
-.englint-tools-message {
-  color: #3c4043;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.englint-tools-copy-text {
+  margin-top: 2px;
 }
-.englint-tools-input:disabled {
-  background: #f8f9fa;
-  color: #5f6368;
-}
+
+/* Synonyms: each word and its nuance, a row that puts the word in. */
 .englint-tools-option {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  box-sizing: border-box;
+  width: calc(100% - 16px);
+  margin: 0 8px 2px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--el-radius-control);
+  background: none;
+  color: var(--el-text);
+  font: 14px/1.45 var(--el-font);
+  text-align: left;
+  cursor: pointer;
+}
+.englint-tools-option:hover,
+.englint-tools-option:focus-visible {
+  background: var(--el-surface-2);
+  outline: none;
+}
+.englint-tools-option:focus-visible {
+  box-shadow: var(--el-focus);
 }
 .englint-tools-word {
   font-weight: 600;
 }
 .englint-tools-nuance {
-  color: #5f6368;
+  color: var(--el-text-2);
   font-size: 13px;
-}
-.englint-tools-error {
-  color: #3c4043;
 }
 
 .englint-tools-loading {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  color: #5f6368;
+  padding: 4px 14px 12px;
+  color: var(--el-text-2);
+  font-size: 13px;
 }
 .englint-tools-spinner {
   width: 14px;
   height: 14px;
   box-sizing: border-box;
-  border: 2px solid #dadce0;
-  border-top-color: #1a73e8;
+  border: 2px solid var(--el-border);
+  border-top-color: var(--el-accent);
   border-radius: 50%;
   animation: englint-spin 800ms linear infinite;
 }
@@ -480,47 +693,26 @@
   }
   .englint-underline.draw::before,
   .englint-card,
+  .englint-menu,
   .englint-undo,
+  .englint-bar,
   .englint-tools,
   .englint-tools-spinner,
   .englint-badge-spinner {
     animation: none;
   }
-  .englint-badge {
+  .englint-badge,
+  .englint-bar-btn,
+  .englint-tools-card {
     transition: none;
   }
 }
 
-/* The button next to a field's selection (SelectionButton.tsx). The layer is click-through; the button is not. */
-.englint-select-btn {
-  position: fixed;
-  box-sizing: border-box;
-  width: 26px;
-  height: 26px;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #fffdf7;
-  border: 1px solid #dadce0;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3);
-  cursor: pointer;
-  pointer-events: auto;
-}
-.englint-select-btn:hover {
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(60, 64, 67, 0.45);
-}
-.englint-select-btn:focus-visible {
-  outline: 2px solid #1a73e8;
-  outline-offset: 1px;
-}
-
 /*
- * The badge in the focused field's corner (Badge.tsx): 20 px, 60% opaque until hovered. The layer is
- * click-through; the badge is not. Colours as the toolbar badge's, plus blue (suggestions only) and green.
+ * The badge in the focused field's corner (Badge.tsx): a 20 px pill with the count, 60% opaque until the pointer is
+ * over its field (hot) or the badge. The layer is click-through; the badge is not. Red with any error, otherwise
+ * the top family's colour; green: nothing open; grey: checking; amber: spending, or Docs. The numerals are
+ * --el-badge-ink, below.
  */
 .englint-badge {
   position: fixed;
@@ -533,28 +725,47 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 50%;
-  color: #fff;
-  font: 600 11px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3);
+  border-radius: var(--el-radius-pill);
+  background: var(--el-text-3);
+  color: var(--el-badge-ink);
+  font: 700 11px/1 var(--el-font);
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--el-shadow-sm);
   opacity: 0.6;
   transition: opacity 120ms ease-out;
   cursor: pointer;
   pointer-events: auto;
 }
 .englint-badge:hover,
-.englint-badge:focus-visible {
+.englint-badge:focus-visible,
+.englint-badge.hot {
   opacity: 1;
 }
 .englint-badge:focus-visible {
-  outline: 2px solid #1a73e8;
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: var(--el-focus);
 }
-.englint-badge.red { background: #d93025; }
-.englint-badge.blue { background: #1a73e8; }
-.englint-badge.green { background: #1e8e3e; }
-.englint-badge.grey { background: #80868b; }
-.englint-badge.amber { background: #f29900; }
+.englint-badge.red { background: var(--el-correctness); }
+.englint-badge.family { background: var(--el-fam); }
+.englint-badge.green { background: var(--el-ins); }
+.englint-badge.grey { background: var(--el-text-3); }
+.englint-badge.amber { background: var(--el-amber); }
+/*
+ * The numerals' ink, 4.5:1 or more on every fill: --el-bg (white on the light scheme's fills, near black on the dark
+ * scheme's lighter ones), but --el-text on the four light fills where white falls under 4.5:1. The dark scheme keeps
+ * --el-bg on all of them: its --el-text is near white.
+ */
+.englint-badge { --el-badge-ink: var(--el-bg); }
+.englint-badge.red,
+.englint-badge.amber,
+.englint-badge.el-fam-engagement,
+.englint-badge.el-fam-generic { --el-badge-ink: var(--el-text); }
+@media (prefers-color-scheme: dark) {
+  .englint-badge.red,
+  .englint-badge.amber,
+  .englint-badge.el-fam-engagement,
+  .englint-badge.el-fam-generic { --el-badge-ink: var(--el-bg); }
+}
 /* "99+" */
 .englint-badge-text.long {
   font-size: 8px;
@@ -564,14 +775,14 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #fff;
+  background: currentColor;
 }
 .englint-badge-spinner {
   width: 10px;
   height: 10px;
   box-sizing: border-box;
-  border: 2px solid rgba(255, 255, 255, 0.45);
-  border-top-color: #fff;
+  border: 2px solid color-mix(in srgb, currentColor 45%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   animation: englint-spin 800ms linear infinite;
 }

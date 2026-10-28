@@ -493,6 +493,19 @@ describe('FieldSession', () => {
     session.dispose();
   });
 
+  it('text() is the text the issues were located in, so their offsets slice it', async () => {
+    const { session, adapter } = setup('I has a cat.', byText({ 'I has a cat.': [raw({ original: 'has', replacement: 'have', before: 'I' })] }));
+    expect(session.text()).toBe('');
+    await session.checkNow();
+    session.start();
+    const at = () => session.text().slice(session.issues()[0]!.start, session.issues()[0]!.end);
+    expect([session.text(), at()]).toEqual(['I has a cat.', 'has']);
+    adapter.type('Hello there.\nI has a cat.');
+    await vi.advanceTimersByTimeAsync(10);
+    expect([session.text(), at()]).toEqual(['Hello there.\nI has a cat.', 'has']);
+    session.dispose();
+  });
+
   it('onUpdate throwing does not set offline or reject', async () => {
     const { session, deps } = setup('Teh cat.', byText({ 'Teh cat.': [raw({})] }));
     deps.onUpdate = () => {

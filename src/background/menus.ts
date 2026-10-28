@@ -2,7 +2,7 @@
 // In a field EngLint can edit, the frame opens the tools popover (openTools). Anywhere else (page text, a
 // canvas app, Docs in fallback mode) the side panel opens with the text (the stash), Copy only. The side
 // panel needs the user gesture, so it opens synchronously, before any await. Nothing here logs page text.
-import { BUILTIN_PRESETS, type ToolRequest } from '../core/presets';
+import { BAR_ACTIONS, type BarRun, type ToolRequest } from '../core/presets';
 import type { OpenToolsRequest } from '../shared/messages';
 
 export const TOOLS_COMMAND = 'englint-tools';
@@ -31,20 +31,29 @@ export function focusEntries(all: Record<string, unknown>): [number, number][] {
   });
 }
 
-type Child = { id: string; title: string; opens: OpenToolsRequest } | { id: string; separator: true };
-const CHILDREN: readonly Child[] = [
-  ...BUILTIN_PRESETS.map((p): Child => ({ id: `englint-${p.id}`, title: p.title, opens: { kind: 'preset', presetId: p.id } })),
-  { id: 'englint-separator', separator: true },
-  { id: 'englint-synonyms', title: 'Synonyms', opens: { kind: 'synonyms' } },
-  { id: 'englint-custom', title: 'Custom instruction…', opens: 'custom-prompt' },
-];
+type Child =
+  | { id: string; title: string; opens: OpenToolsRequest; parentId?: string }
+  | { id: string; title: string; submenu: true; parentId?: string };
+
+/** A menu item's id: what it runs ("englint-formal", "englint-synonyms", "englint-custom"). */
+const runId = (run: BarRun) => `englint-${run === 'custom-prompt' ? 'custom' : run.kind === 'preset' ? run.presetId : run.kind}`;
+
+/**
+ * The selection bar's actions (BAR_ACTIONS, every mode: the controller says when the page's mode doesn't offer one):
+ * Improve, Shorten ▸, Tone ▸, My voice and More ▸. Synonyms, the bar's own button for one word, is under More here.
+ */
+const CHILDREN: readonly Child[] = BAR_ACTIONS.flatMap((a): Child[] => {
+  if (a.kind === 'button') return a.words === 'single' ? [] : [{ id: runId(a.run), title: a.label, opens: a.run }];
+  const parentId = `englint-${a.id}`;
+  return [{ id: parentId, title: a.label, submenu: true }, ...a.items.map((i) => ({ id: runId(i.run), title: i.label, opens: i.run, parentId }))];
+});
 
 export type MenusApi = Pick<typeof browser.contextMenus, 'create' | 'removeAll'>;
 
 /**
- * Creates the menu: "EngLint" on a selection or in an editable field, with the four presets, a separator,
- * Synonyms and "Custom instruction…". Chrome keeps menus across worker restarts, so this runs on install
- * and update; it clears the old menu first, or the same ids would be created twice.
+ * Creates the menu: "EngLint" on a selection or in an editable field, with the bar's actions (CHILDREN). Chrome
+ * keeps menus across worker restarts, so this runs on install and update; it clears the old menu first, or the
+ * same ids would be created twice.
  */
 export async function registerMenus(menus: MenusApi = browser.contextMenus): Promise<void> {
   await menus.removeAll();
@@ -58,19 +67,13 @@ export async function registerMenus(menus: MenusApi = browser.contextMenus): Pro
     );
   await create({ id: ROOT_ID, title: 'EngLint', contexts: CONTEXTS });
   // A child's contexts default to 'page', where the parent never shows: each one needs the parent's.
-  for (const child of CHILDREN) {
-    await create(
-      'separator' in child
-        ? { id: child.id, parentId: ROOT_ID, type: 'separator', contexts: CONTEXTS }
-        : { id: child.id, parentId: ROOT_ID, title: child.title, contexts: CONTEXTS },
-    );
-  }
+  for (const child of CHILDREN) await create({ id: child.id, parentId: child.parentId ?? ROOT_ID, title: child.title, contexts: CONTEXTS });
 }
 
-/** What a menu item opens: a request, 'custom-prompt' (the menu with the custom input focused), or null. */
+/** What a menu item opens: a request, 'custom-prompt' (the bar with its "Ask anything…" box focused), or null. */
 export function menuRequest(menuItemId: string): ToolRequest | 'custom-prompt' | null {
   const child = CHILDREN.find((c) => c.id === menuItemId);
-  return child && !('separator' in child) ? child.opens : null;
+  return child && 'opens' in child ? child.opens : null;
 }
 
 export interface LauncherDeps {

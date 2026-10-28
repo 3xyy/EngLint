@@ -119,6 +119,7 @@ export default defineBackground(() => {
   onMessage('rewrite', ({ data, sender }) => tools.rewrite(data, { topHost: webHost(sender.tab?.url) }));
   onMessage('synonyms', ({ data, sender }) => tools.synonyms(data, { topHost: webHost(sender.tab?.url) }));
   onMessage('followUp', ({ data, sender }) => tools.followUp(data, { topHost: webHost(sender.tab?.url) }));
+  onMessage('wordLimit', ({ data, sender }) => tools.wordLimit(data, { topHost: webHost(sender.tab?.url) }));
   onMessage('buildStyleProfile', ({ data, sender }) => tools.buildStyleProfile(data, { url: sender.url }));
   onMessage('reviewTone', ({ data, sender }) => review.tone(data, { url: sender.url }));
   onMessage('reviewReaders', ({ data, sender }) => review.readers(data, { url: sender.url }));

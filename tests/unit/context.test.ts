@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_VOICE_SAMPLE_CHARS, contextAround, sentenceAround, trimRange, voiceSampleAround } from '../../src/core/context';
+import { MAX_VOICE_SAMPLE_CHARS, contextAround, cutAtWord, isSingleWord, sentenceAround, snapToWords, trimRange, voiceSampleAround } from '../../src/core/context';
 
 describe('trimRange', () => {
   it('trims edge whitespace', () => {
@@ -114,5 +114,69 @@ describe('voiceSampleAround', () => {
     expect(out.length).toBeLessThanOrEqual(1500);
     expect(out.length).toBeGreaterThan(1490);
     expect(out).toMatch(/^word( word)*$/);
+  });
+});
+
+describe('snapToWords', () => {
+  /** The snapped text for `part` of `text`, found at its first occurrence. */
+  const snap = (text: string, part: string) => {
+    const start = text.indexOf(part);
+    const r = snapToWords(text, start, start + part.length);
+    return text.slice(r.start, r.end);
+  };
+
+  it('a selection inside a word ("roble" in "problems") grows to the whole word', () => {
+    const text = 'Our problems are big.';
+    expect(snapToWords(text, 5, 10)).toEqual({ start: 4, end: 12 });
+    expect(snap(text, 'roble')).toBe('problems');
+  });
+
+  it('only the edge inside a word moves', () => {
+    expect(snap('I has a cat.', 'as a cat')).toBe('has a cat');
+    expect(snap('I has a cat.', 'has a c')).toBe('has a cat');
+    expect(snap('I has a cat.', 'has a cat')).toBe('has a cat');
+  });
+
+  it('stops at spaces, punctuation and hyphens', () => {
+    expect(snap('the cat.', 'ca')).toBe('cat');
+    expect(snap('a (word) here', 'or')).toBe('word');
+    expect(snap('a well-known fact', 'kno')).toBe('known');
+    expect(snap('a self-aware cat', 'self-aw')).toBe('self-aware');
+  });
+
+  it("keeps an apostrophe between letters inside the word, and leaves a trailing one out", () => {
+    expect(snap("I don't go", 'don')).toBe("don't");
+    expect(snap("I don’t go", 't go')).toBe('don’t go');
+    expect(snap("the dogs' bowls", 'dog')).toBe('dogs');
+  });
+
+  it('counts letters with accents and digits as word characters', () => {
+    expect(snap('un café noir', 'caf')).toBe('café');
+    expect(snap('in 2026 we', '02')).toBe('2026');
+  });
+
+  it('leaves an empty or whole-text range alone', () => {
+    expect(snapToWords('word', 0, 4)).toEqual({ start: 0, end: 4 });
+    expect(snapToWords('', 0, 0)).toEqual({ start: 0, end: 0 });
+  });
+});
+
+describe('isSingleWord', () => {
+  it('is one run of word characters, an inner apostrophe or hyphen allowed', () => {
+    expect(isSingleWord('problems')).toBe(true);
+    expect(isSingleWord("don't")).toBe(true);
+    expect(isSingleWord('well-known')).toBe(true);
+    expect(isSingleWord('two words')).toBe(false);
+    expect(isSingleWord('end.')).toBe(false);
+    expect(isSingleWord('')).toBe(false);
+  });
+});
+
+describe('cutAtWord', () => {
+  it('cuts at the last word boundary that fits, never mid-word', () => {
+    expect(cutAtWord('one two three', 9)).toBe('one two');
+    expect(cutAtWord('one two three', 7)).toBe('one two');
+    expect(cutAtWord('one two three', 50)).toBe('one two three');
+    expect(cutAtWord('onetwothree', 5)).toBe('');
   });
 });

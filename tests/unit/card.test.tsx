@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cardAction } from '../../src/content/card-actions';
-import { Card, type CardProps } from '../../src/content/overlay/Card';
+import { Card, type CardProps, OfferChip, UndoChip } from '../../src/content/overlay/Card';
 import type { LocatedIssue } from '../../src/core/types';
 
 const issue = (o: Partial<LocatedIssue> = {}): LocatedIssue => ({
@@ -21,11 +21,22 @@ const issue = (o: Partial<LocatedIssue> = {}): LocatedIssue => ({
   ...o,
 });
 
-function renderCard(i: LocatedIssue, secondary?: CardProps['secondary']) {
+const CONTEXT = { before: 'We all knew that last week I ', after: ' a cat called Ink and a dog called Rex.' };
+
+/** `context` null: the card without the field's text. */
+function renderCard(i: LocatedIssue, secondary?: CardProps['secondary'], context: CardProps['context'] | null = CONTEXT) {
   const handlers = { onAccept: vi.fn(), onRewrite: vi.fn(), onDismiss: vi.fn(), onClose: vi.fn() };
-  const { container } = render(<Card issue={i} anchor={new DOMRect(10, 10, 30, 20)} secondary={secondary} {...handlers} />);
-  return { container, ...handlers };
+  const { container } = render(<Card issue={i} context={context ?? undefined} anchor={new DOMRect(10, 10, 30, 20)} secondary={secondary} {...handlers} />);
+  return { container, card: container.querySelector<HTMLElement>('.englint-card')!, ...handlers };
 }
+
+const NOTE = issue({ original: 'very unique', replacement: null, category: 'clarity', severity: 'suggestion', kind: 'redundancy', reason: 'Unique already means one of a kind.' });
+const names = (els: Iterable<Element>) => [...els].map((b) => b.getAttribute('aria-label') ?? b.textContent);
+/** The "⋯" button, and the menu's items once it is open. */
+const more = (card: HTMLElement) => card.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+const items = (card: HTMLElement) => [...card.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')];
+/** A pointer click (detail 1): the menu opens without taking focus from the field. */
+const pointerClick = (el: Element) => fireEvent.click(el, { detail: 1 });
 
 /** The card as the overlay shows it: with the action cardAction offers for the issue in Standard, if any. */
 function renderWithAction(i: LocatedIssue) {
@@ -49,70 +60,102 @@ afterEach(() => {
 });
 
 describe('Card', () => {
-  it('card shows only the fix and a Dismiss bar', () => {
-    const { container, onAccept, onDismiss } = renderCard(issue());
-    const card = container.querySelector('.englint-card')!;
-    expect(card.textContent).toBe('haveDismiss');
-    expect(card.querySelector('s, .englint-card-category, .englint-card-dot, .englint-card-reason, .englint-card-original')).toBeNull();
-    const fix = card.querySelector<HTMLButtonElement>('button.englint-card-fix')!;
-    expect(fix.textContent).toBe('have');
-    const bar = card.lastElementChild!;
-    expect(bar.className).toBe('englint-card-bar');
-    expect(bar.firstElementChild!.matches('button.englint-card-dismiss')).toBe(true);
-    expect(bar.firstElementChild!.textContent).toBe('Dismiss');
+  it('shows the type of change, the change in its context, the reason, then Accept and Dismiss', () => {
+    const { card, onAccept, onDismiss } = renderCard(issue());
+    expect(card.querySelector('.el-type-text')!.textContent).toBe('Correctness · Fix subject-verb agreement');
+    expect(card.querySelector('.el-dot.el-fam-correctness')).not.toBeNull();
+    const preview = card.querySelector('.englint-card-preview')!;
+    // Six words of context each side, cut with "…".
+    expect(preview.textContent).toBe('…all knew that last week I hashave a cat called Ink and a…');
+    expect(preview.querySelector('del')!.textContent).toBe('has');
+    expect(preview.querySelector('ins')!.textContent).toBe('have');
+    expect(card.querySelector('.englint-card-reason')!.textContent).toBe('Use "have" with "I".');
+    expect(names(card.querySelectorAll('.englint-card-actions button'))).toEqual(["Accept: replace 'has' with 'have'", 'Dismiss']);
+    expect([...card.querySelectorAll('.englint-card-actions button')].map((b) => b.textContent)).toEqual(['Accept', 'Dismiss']);
+    expect(card.querySelector('.englint-card-accept')!.classList.contains('el-btn-primary')).toBe(true);
+    expect(card.querySelector('.englint-card-dismiss')!.classList.contains('el-btn-ghost')).toBe(true);
 
-    fireEvent.click(fix);
+    fireEvent.click(card.querySelector('.englint-card-accept')!);
     expect(onAccept).toHaveBeenCalledTimes(1);
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
-  it('the fix button names the original and the replacement', () => {
-    const { container } = renderCard(issue());
-    expect(container.querySelector('button.englint-card-fix')!.getAttribute('aria-label')).toBe("Replace 'has' with 'have'");
+  it('without the field\u2019s text the preview is the change alone', () => {
+    const { card } = renderCard(issue(), undefined, null);
+    expect(card.querySelector('.englint-card-preview')!.textContent).toBe('hashave');
   });
 
-  it('a deletion makes the struck-through original the fix button', () => {
-    const { container, onAccept } = renderCard(issue({ original: 'very ', replacement: '', category: 'clarity', severity: 'suggestion' }));
-    expect(container.querySelector('.englint-card-original')).toBeNull();
-    const fix = container.querySelector<HTMLButtonElement>('button.englint-card-fix')!;
-    expect(fix.classList.contains('delete')).toBe(true);
-    expect(fix.getAttribute('aria-label')).toBe("Delete 'very '");
-    expect(fix.querySelector('s')!.textContent).toBe('very ');
-    expect(container.querySelectorAll('s')).toHaveLength(1);
-    fireEvent.click(fix);
+  it('a deletion strikes the original and inserts nothing; Accept names the deletion', () => {
+    const { card, onAccept } = renderCard(issue({ original: 'very ', replacement: '', category: 'clarity', severity: 'suggestion', kind: 'redundancy' }));
+    expect(card.querySelector('.englint-card-preview del')!.textContent).toBe('very ');
+    expect(card.querySelector('.englint-card-preview ins')).toBeNull();
+    const accept = card.querySelector<HTMLButtonElement>('.englint-card-accept')!;
+    expect(accept.getAttribute('aria-label')).toBe("Accept: delete 'very '");
+    fireEvent.click(accept);
     expect(onAccept).toHaveBeenCalledTimes(1);
   });
 
-  it('a comment-only issue shows one "Rewrite this sentence" button and the Dismiss bar, and no fix button', () => {
-    const { container, onAccept, onRewrite } = renderCard(
-      issue({ original: 'very unique', replacement: null, category: 'clarity', severity: 'suggestion', kind: 'vague' }),
-    );
-    const card = container.querySelector('.englint-card')!;
-    expect(card.textContent).toBe('Rewrite this sentenceDismiss');
-    expect(card.querySelector('button.englint-card-fix')).toBeNull();
-    expect(card.querySelectorAll('button')).toHaveLength(2);
-    const rewrite = card.querySelector<HTMLButtonElement>('button.englint-card-rewrite')!;
-    expect(rewrite.textContent).toBe('Rewrite this sentence');
+  it('a comment-only note: its words marked in the family\u2019s colour, and "Rewrite sentence" as the primary in place of Accept', () => {
+    const { card, onAccept, onRewrite } = renderCard(NOTE);
+    expect(card.querySelector('.el-type-text')!.textContent).toBe('Clarity · Remove the redundancy');
+    expect(card.querySelector('.englint-card-preview mark')!.textContent).toBe('very unique');
+    expect(card.querySelector('.englint-card-preview del, .englint-card-preview ins, .englint-card-accept')).toBeNull();
+    expect(card.classList.contains('el-fam-clarity')).toBe(true); // the mark's dotted underline is drawn in --el-fam
+    const rewrite = card.querySelector<HTMLButtonElement>('.englint-card-actions .englint-card-rewrite')!;
+    expect(rewrite.textContent).toBe('Rewrite sentence');
+    expect(rewrite.classList.contains('el-btn-primary')).toBe(true);
     fireEvent.click(rewrite);
     expect(onRewrite).toHaveBeenCalledTimes(1);
     expect(onAccept).not.toHaveBeenCalled();
-    expect(fireEvent.mouseDown(rewrite)).toBe(false); // keeps focus in the field
   });
 
-  it('Dismiss dismisses; Escape closes', () => {
-    const { container, onDismiss, onClose } = renderCard(issue());
-    fireEvent.click(container.querySelector('.englint-card-dismiss')!);
-    expect(onDismiss).toHaveBeenCalledTimes(1);
-    fireEvent.keyDown(container.querySelector('.englint-card')!, { key: 'Escape' });
+  it('Enter accepts (a note\u2019s Enter rewrites); Escape closes', () => {
+    const { card, onAccept, onClose, onDismiss } = renderCard(issue());
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(onAccept).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(card.querySelector('.englint-card-reason')!, { key: 'Enter' });
+    expect(onAccept).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(card, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onDismiss).not.toHaveBeenCalled();
+    cleanup();
+
+    const note = renderCard(NOTE);
+    fireEvent.keyDown(note.card, { key: 'Enter' });
+    expect(note.onRewrite).toHaveBeenCalledTimes(1);
+    expect(note.onAccept).not.toHaveBeenCalled();
   });
 
-  it('buttons never take focus from the field on mouse down', () => {
-    const { container } = renderCard(issue());
-    for (const button of container.querySelectorAll('button')) {
-      // fireEvent returns false when the handler called preventDefault.
-      expect(fireEvent.mouseDown(button)).toBe(false);
-    }
+  it('Enter on another button is that button\u2019s own: it accepts nothing', () => {
+    const { card, onAccept } = renderCard(issue(), { label: 'Stop suggesting x', onClick: vi.fn() });
+    for (const b of [card.querySelector('.englint-card-dismiss')!, more(card)!]) fireEvent.keyDown(b, { key: 'Enter' });
+    fireEvent.click(more(card)!);
+    for (const item of items(card)) fireEvent.keyDown(item, { key: 'Enter' });
+    expect(onAccept).not.toHaveBeenCalled();
+  });
+
+  it('Dismiss dismisses', () => {
+    const { card, onDismiss } = renderCard(issue());
+    fireEvent.click(card.querySelector('.englint-card-dismiss')!);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('nothing on it takes focus from the field on mouse down: its buttons, its menu, its text', () => {
+    const { card } = renderCard(issue(), { label: 'Stop suggesting x', onClick: vi.fn() });
+    pointerClick(more(card)!);
+    const targets = [...card.querySelectorAll('button'), card, card.querySelector('.englint-card-reason')!, card.querySelector('.englint-card-preview')!];
+    expect(items(card)).toHaveLength(2);
+    // fireEvent returns false when a handler called preventDefault.
+    for (const el of targets) expect([el.className, fireEvent.mouseDown(el)]).toEqual([el.className, false]);
+  });
+
+  it('is 340 px wide, and its reason is clamped to two lines', () => {
+    sheet = document.createElement('style');
+    sheet.textContent = readFileSync('src/content/overlay/overlay.css', 'utf8');
+    document.head.append(sheet);
+    const { card } = renderCard(issue());
+    expect(getComputedStyle(card).width).toBe('340px');
+    expect(getComputedStyle(card.querySelector('.englint-card-reason')!).getPropertyValue('line-clamp')).toBe('2'); // the e2e checks Chromium's clamp
   });
 
   it('says which side of its text it opened on, so the enter animation grows from there', () => {
@@ -180,29 +223,41 @@ describe('Card', () => {
     });
   });
 
-  describe('the action beside Dismiss', () => {
+  describe('the "⋯" menu', () => {
     const PASSIVE = issue({ original: 'was written', replacement: 'wrote', category: 'clarity', severity: 'suggestion', kind: 'passive_voice' });
     const KUBERNETES = issue({ original: 'Kubernetes', replacement: 'Kubernetis', category: 'spelling', severity: 'error', kind: 'spelling' });
-    const barButtons = (container: HTMLElement) =>
-      [...container.querySelectorAll('.englint-card-bar button')].map((b) => b.textContent);
 
-    it('"Stop suggesting passive voice" for a passive_voice suggestion, after Dismiss', () => {
-      const { container, onClick, onDismiss } = renderWithAction(PASSIVE);
-      expect(barButtons(container)).toEqual(['Dismiss', 'Stop suggesting passive voice']);
-      const button = container.querySelector<HTMLButtonElement>('button.englint-card-secondary')!;
-      expect(fireEvent.mouseDown(button)).toBe(false); // keeps focus in the field
-      userClick(button);
+    it('holds "Stop suggesting passive voice" and "Rewrite sentence" for a passive_voice suggestion, closed until "⋯" is pressed', () => {
+      const { card, onClick, onDismiss } = renderWithAction(PASSIVE);
+      const button = more(card)!;
+      expect([button.getAttribute('aria-label'), button.getAttribute('aria-expanded')]).toEqual(['More actions', 'false']);
+      expect(card.querySelector('[role="menu"]')).toBeNull();
+      pointerClick(button);
+      expect(button.getAttribute('aria-expanded')).toBe('true');
+      expect(card.querySelector('[role="menu"]')!.id).toBe(button.getAttribute('aria-controls'));
+      expect(names(items(card))).toEqual(['Stop suggesting passive voice', 'Rewrite sentence']);
+      userClick(items(card)[0]!);
       expect(onClick).toHaveBeenCalledTimes(1);
       expect(onDismiss).not.toHaveBeenCalled();
+      pointerClick(button);
+      expect(card.querySelector('[role="menu"]')).toBeNull(); // pressed again: closed
     });
 
-    it('it answers only the user’s own click: a page script’s click writes nothing', () => {
-      const { container, onClick } = renderWithAction(PASSIVE);
-      const button = container.querySelector<HTMLButtonElement>('button.englint-card-secondary')!;
-      button.click(); // what a page script can do: isTrusted false
-      fireEvent.click(button);
+    it('"Rewrite sentence" opens the tools on the sentence', () => {
+      const { card, onRewrite } = renderWithAction(PASSIVE);
+      pointerClick(more(card)!);
+      fireEvent.click(items(card)[1]!);
+      expect(onRewrite).toHaveBeenCalledTimes(1);
+    });
+
+    it('its setting action answers only the user’s own click: a page script’s click writes nothing', () => {
+      const { card, onClick } = renderWithAction(PASSIVE);
+      pointerClick(more(card)!);
+      const item = items(card)[0]!;
+      item.click(); // what a page script can do: isTrusted false
+      fireEvent.click(item);
       expect(onClick).not.toHaveBeenCalled();
-      userClick(button);
+      userClick(item);
       expect(onClick).toHaveBeenCalledTimes(1);
     });
 
@@ -213,31 +268,101 @@ describe('Card', () => {
       const { container } = render(
         <Card issue={PASSIVE} anchor={new DOMRect(10, window.innerHeight - 20, 30, 20)} secondary={{ label: 'Stop suggesting passive voice', onClick }} {...handlers} />,
       );
-      expect(container.querySelector<HTMLElement>('.englint-card')!.dataset.side).toBe('above');
-      userClick(container.querySelector('button.englint-card-secondary')!);
+      const card = container.querySelector<HTMLElement>('.englint-card')!;
+      expect(card.dataset.side).toBe('above');
+      pointerClick(more(card)!);
+      userClick(items(card)[0]!);
       expect(onClick).toHaveBeenCalledWith('above');
     });
 
-    it('"Add to dictionary" for a spelling error on Kubernetes', () => {
-      const { container } = renderWithAction(KUBERNETES);
-      expect(barButtons(container)).toEqual(['Dismiss', 'Add to dictionary']);
+    it('"Add “Kubernetes” to dictionary" for a spelling error on Kubernetes', () => {
+      const { card } = renderWithAction(KUBERNETES);
+      pointerClick(more(card)!);
+      expect(names(items(card))).toEqual(['Add “Kubernetes” to dictionary', 'Rewrite sentence']);
     });
 
-    it('neither for a grammar error', () => {
-      const { container } = renderWithAction(issue());
-      expect(barButtons(container)).toEqual(['Dismiss']);
-      expect(container.querySelector('.englint-card-secondary')).toBeNull();
+    it('only "Rewrite sentence" for a grammar error', () => {
+      const { card } = renderWithAction(issue());
+      pointerClick(more(card)!);
+      expect(names(items(card))).toEqual(['Rewrite sentence']);
     });
 
-    it('each button in the bottom row is no wider than its label: width auto, and it neither grows nor shrinks', () => {
-      sheet = document.createElement('style');
-      sheet.textContent = readFileSync('src/content/overlay/overlay.css', 'utf8');
-      document.head.append(sheet);
-      const { container } = renderWithAction(PASSIVE);
-      for (const sel of ['.englint-card-dismiss', '.englint-card-secondary']) {
-        const cs = getComputedStyle(container.querySelector(sel)!);
-        expect([sel, cs.width, cs.flexGrow, cs.flexShrink, cs.flexBasis]).toEqual([sel, 'auto', '0', '0', 'auto']);
-      }
+    it('a note rewrites from its primary, so its menu holds only the setting action, and there is no "⋯" when there is none', () => {
+      const { card } = renderWithAction(NOTE);
+      pointerClick(more(card)!);
+      expect(names(items(card))).toEqual(['Stop suggesting redundant words']);
+      cleanup();
+      expect(more(renderCard(NOTE).card)).toBeNull();
     });
+
+    it('from the keyboard: opening focuses the first item; the arrows, Home and End move and wrap; Escape closes it (not the card) and focuses "⋯"', () => {
+      const { card, onClose } = renderWithAction(PASSIVE);
+      const button = more(card)!;
+      button.focus();
+      fireEvent.click(button); // a key's click: detail 0
+      const [stop, rewrite] = items(card);
+      expect(document.activeElement).toBe(stop);
+      expect(items(card).map((i) => i.tabIndex)).toEqual([-1, -1]);
+      const key = (k: string) => fireEvent.keyDown(document.activeElement!, { key: k });
+      key('ArrowDown');
+      expect(document.activeElement).toBe(rewrite);
+      key('ArrowDown');
+      expect(document.activeElement).toBe(stop);
+      key('ArrowUp');
+      expect(document.activeElement).toBe(rewrite);
+      key('Home');
+      expect(document.activeElement).toBe(stop);
+      key('End');
+      expect(document.activeElement).toBe(rewrite);
+      key('Escape');
+      expect(card.querySelector('[role="menu"]')).toBeNull();
+      expect(document.activeElement).toBe(button);
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('ArrowDown or ArrowUp on "⋯" opens it at the first or the last item; a pointer\u2019s open leaves focus where it was', () => {
+      const { card } = renderWithAction(PASSIVE);
+      const button = more(card)!;
+      button.focus();
+      fireEvent.keyDown(button, { key: 'ArrowUp' });
+      expect(document.activeElement).toBe(items(card)[1]);
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+      fireEvent.keyDown(button, { key: 'ArrowDown' });
+      expect(document.activeElement).toBe(items(card)[0]);
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+      (document.activeElement as HTMLElement).blur();
+      pointerClick(button);
+      expect(items(card)).toHaveLength(2);
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it('Tab out of it closes it', () => {
+      const { card } = renderWithAction(PASSIVE);
+      fireEvent.click(more(card)!);
+      fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+      expect(card.querySelector('[role="menu"]')).toBeNull();
+    });
+  });
+});
+
+describe('the undo and offer chips', () => {
+  const at = new DOMRect(10, 10, 30, 20);
+  const look = (chip: Element) => [...chip.querySelectorAll('button')].map((b) => [b.textContent, b.className]);
+
+  it('the undo chip: its words, then Undo as a small text button in the accent colour', () => {
+    const chip = render(<UndoChip anchor={at} text="Stopped suggesting passive voice." onUndo={vi.fn()} />).container.querySelector('.englint-undo')!;
+    expect(chip.textContent).toBe('Stopped suggesting passive voice.Undo');
+    expect(look(chip)).toEqual([['Undo', 'el-btn el-btn-ghost el-btn-sm englint-undo-button englint-undo-accent']]);
+  });
+
+  it('the offer chip: its question, then the yes button as the small primary and "Not now" as a small text button', () => {
+    const chip = render(<OfferChip anchor={at} question="Stop suggesting passive voice in essays?" yes="Stop" onYes={vi.fn()} onNo={vi.fn()} />).container.querySelector(
+      '.englint-undo.englint-offer',
+    )!;
+    expect(chip.textContent).toBe('Stop suggesting passive voice in essays?StopNot now');
+    expect(look(chip)).toEqual([
+      ['Stop', 'el-btn el-btn-primary el-btn-sm englint-undo-button'],
+      ['Not now', 'el-btn el-btn-ghost el-btn-sm englint-undo-button'],
+    ]);
   });
 });

@@ -32,14 +32,44 @@ Most writing assistants lock their best suggestions behind a subscription and se
 
 | | |
 |---|---|
-| **Live checks** | Spelling, grammar and punctuation, plus clarity, word-choice and tone suggestions, each one a single click to accept or dismiss. |
+| **Live checks** | Spelling, grammar and punctuation, plus clarity, word-choice and tone suggestions. Every card names the kind of change ("Clarity · Cut wordiness") and shows the edit inside your sentence, one click to accept. |
 | **Instant local checks** | [Harper](https://writewithharper.com) runs in the browser as WebAssembly. Common mistakes are flagged in milliseconds, without that text leaving your machine. |
-| **Rewrite bar** | Highlight anything to improve it, shorten it, change its tone, or make it sound like you. Follow up in plain words ("make it punchier") right in the popup. |
+| **Rewrite bar** | Highlight anything for a compact bar: Improve, Shorten, Tone, My voice and more. Follow up in plain words ("make it punchier") right in the results. |
+| **Fit a word limit** | Over a limit? Pick a target and EngLint suggests specific cuts, each with its word savings, and counts as you choose. Cuts that would change a fact are flagged, never pre-selected. |
 | **Writing modes** | Essay mode leads with comments instead of rewriting your voice. Standard and Casual fit everyday writing. Each site remembers its mode, and essay sites start in Essay. |
 | **Essay review** | A side panel with document stats and tone, reactions from different readers, a grader that scores you against your own rubric, a whole-text deep check, and a citation finder backed by web search (on Claude). |
 | **Chat** | Ask about the text you're writing. Answers can propose edits you apply in one click. |
 | **Learns your style** | A personal dictionary, "stop suggesting this" rules per mode, and an optional style profile that keeps rewrites in your voice. |
 | **Any provider** | Claude is the default, and EngLint is tuned and tested on it. OpenAI, Google Gemini, OpenRouter, Groq, Ollama, LM Studio and custom endpoints work too. |
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src=".github/assets/screenshots/suggestion-card.png" alt="A suggestion card labelled Clarity · Cut wordiness, showing the edit in context with Accept and Dismiss"></td>
+    <td width="50%"><img src=".github/assets/screenshots/selection-bar.png" alt="The selection bar with Improve, Shorten, Tone, My voice and More, and the Tone menu open"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Every suggestion says what kind of change it is</sub></td>
+    <td align="center"><sub>The rewrite bar, with tones one click away</sub></td>
+  </tr>
+  <tr>
+    <td><img src=".github/assets/screenshots/word-limit.png" alt="Fit a word limit: 280 to 250 words, with suggested cuts and their word savings"></td>
+    <td><img src=".github/assets/screenshots/side-panel-dark.png" alt="The side panel in dark mode, with issues grouped by type"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Cut an essay to its limit, one suggestion at a time</sub></td>
+    <td align="center"><sub>The side panel, in dark mode</sub></td>
+  </tr>
+  <tr>
+    <td><img src=".github/assets/screenshots/settings-dark.png" alt="The settings page with a section menu and the AI provider card"></td>
+    <td><img src=".github/assets/screenshots/popup-dark.png" alt="The popup with a site switch, writing mode and monthly spend"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Settings</sub></td>
+    <td align="center"><sub>The popup</sub></td>
+  </tr>
+</table>
 
 ## Install
 

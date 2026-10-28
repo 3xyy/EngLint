@@ -1,7 +1,8 @@
+import { shownFamily } from '../../core/kinds';
 import type { ProviderInfo } from '../../core/provider';
-import type { CheckStatus } from '../../core/types';
+import type { CheckStatus, FamilyToggle, LocatedIssue } from '../../core/types';
 import { statusText } from '../../shared/status-text';
-import { byUser } from './ToolsPopover';
+import { byUser } from './by-user';
 
 /** The badge's diameter, px (overlay.css .englint-badge). */
 export const BADGE_SIZE = 20;
@@ -17,14 +18,30 @@ export interface BadgeView {
   status: CheckStatus;
   /** The field has had its first answer: until then, no issues means nothing is known yet. */
   checked: boolean;
+  /** The top family of the open suggestions (topFamily): a suggestions count is drawn in its colour. */
+  family?: FamilyToggle;
+}
+
+/** The suggestion families in the order the panel lists them. */
+const FAMILY_ORDER: readonly FamilyToggle[] = ['clarity', 'engagement', 'delivery', 'generic'];
+
+/** The first family, in the panel's order, with an open suggestion (an error's family, Correctness, isn't listed). */
+export function topFamily(issues: readonly LocatedIssue[]): FamilyToggle | undefined {
+  const open = new Set(issues.map(shownFamily));
+  return FAMILY_ORDER.find((f) => open.has(f));
 }
 
 export interface BadgeLook {
   face: 'count' | 'check' | 'dot' | 'spinner' | 'status';
   /** The count or the status glyph; '' for the check, the dot and the spinner. */
   text: string;
-  /** red: errors, or a key problem; blue: suggestions only; green: nothing open; grey: checking (or soon), or Claude out of reach; amber: spending, or Docs. */
-  tone: 'red' | 'blue' | 'green' | 'grey' | 'amber';
+  /**
+   * red: errors, or a key problem; family: suggestions only, in `family`'s colour; green: nothing open; grey:
+   * checking (or soon), or Claude out of reach; amber: spending, or Docs.
+   */
+  tone: 'red' | 'family' | 'green' | 'grey' | 'amber';
+  /** The family whose colour a suggestions count is drawn in. */
+  family?: FamilyToggle;
   /** Its accessible name. */
   label: string;
 }
@@ -57,7 +74,8 @@ const shown = (n: number) => (n > 99 ? '99+' : String(n));
 
 /**
  * What the badge shows, in this order: the spinner while a check is in flight; a status glyph while a status
- * stops or holds checking; the error count in red; the suggestion count in blue when there are no errors;
+ * stops or holds checking; the error count in red; the suggestion count in its top family's colour (Clarity's
+ * when none is given) when there are no errors;
  * a green check when nothing is open, or a grey dot before the field's first answer. `who` names the provider in a
  * status's label.
  */
@@ -71,12 +89,9 @@ export function badgeLook(view: BadgeView, who: ProviderInfo): BadgeLook {
       ? { face: 'check', text: '', tone: 'green', label: 'EngLint: no issues' }
       : { face: 'dot', text: '', tone: 'grey', label: 'EngLint: checking soon' };
   }
-  return {
-    face: 'count',
-    text: shown(errors > 0 ? errors : suggestions),
-    tone: errors > 0 ? 'red' : 'blue',
-    label: `EngLint: ${plural(errors, 'error')}, ${plural(suggestions, 'suggestion')}`,
-  };
+  const label = `EngLint: ${plural(errors, 'error')}, ${plural(suggestions, 'suggestion')}`;
+  if (errors > 0) return { face: 'count', text: shown(errors), tone: 'red', label };
+  return { face: 'count', text: shown(suggestions), tone: 'family', family: view.family ?? 'clarity', label };
 }
 
 /**
@@ -97,14 +112,14 @@ export function coveredAt(field: Element): (x: number, y: number) => boolean {
 /**
  * The badge in the focused field's corner, in the fixed overlay. Its mousedown is prevented, so pressing it
  * leaves focus (and the badge) in the field; it is out of the Tab order for the same reason. Only the user's
- * own click counts (byUser): a page script can't press it.
+ * own click counts (byUser): a page script can't press it. `hot`: the pointer is over its field (full opacity).
  */
-export function Badge(props: { x: number; y: number; look: BadgeLook; onClick(): void }) {
+export function Badge(props: { x: number; y: number; look: BadgeLook; hot?: boolean; onClick(): void }) {
   const { look } = props;
   return (
     <button
       type="button"
-      className={`englint-badge ${look.tone}`}
+      className={`englint-badge ${look.tone}${look.family ? ` el-fam-${look.family}` : ''}${props.hot ? ' hot' : ''}`}
       aria-label={look.label}
       tabIndex={-1}
       style={{ left: props.x, top: props.y }}

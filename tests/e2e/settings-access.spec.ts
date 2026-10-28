@@ -90,6 +90,47 @@ test('options with a saved key shows no onboarding hint and no autofocus', async
   await expect(page.getByLabel('Claude API key')).not.toBeFocused();
 });
 
+const SECTIONS = ['AI provider', 'Spending', 'Writing', 'Suggestions', 'On the page', 'Your writing style', 'Your rules', 'Google Docs'];
+
+test('the options nav links scroll to their sections and mark the one being read', async ({ page, extensionId }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(optionsUrl(extensionId));
+  const nav = page.getByRole('navigation', { name: 'Settings sections' });
+  const link = (name: string) => nav.getByRole('link', { name, exact: true });
+  await expect(nav.getByRole('link')).toHaveText(SECTIONS);
+  const provider = page.getByRole('region', { name: 'AI provider' });
+  const rules = page.getByRole('region', { name: 'Your rules' });
+  await expect(provider).toBeInViewport();
+  await expect(rules).not.toBeInViewport();
+  await expect(link('AI provider')).toHaveAttribute('aria-current', 'location');
+
+  await link('Your rules').click();
+  await expect(rules).toBeInViewport();
+  await expect(provider).not.toBeInViewport();
+  await expect(link('Your rules')).toHaveAttribute('aria-current', 'location');
+  await expect(nav).toBeInViewport(); // it stays in place
+
+  await link('AI provider').click();
+  await expect(provider).toBeInViewport();
+  await expect(link('AI provider')).toHaveAttribute('aria-current', 'location');
+  // The smooth scroll has landed: the card's top just under the window's (its scroll margin).
+  await expect.poll(() => provider.evaluate((el) => Math.round(el.getBoundingClientRect().top))).toBe(24);
+  // Scrolling by hand moves the mark to the section that reaches the top.
+  await page.mouse.move(700, 400);
+  await page.mouse.wheel(0, 900);
+  await expect(nav.locator('[aria-current]')).toHaveCount(1);
+  await expect(nav.locator('[aria-current]')).not.toHaveText('AI provider');
+});
+
+test('in a narrow window the options nav sits above the cards, across the page', async ({ page, extensionId }) => {
+  await page.setViewportSize({ width: 600, height: 800 });
+  await page.goto(optionsUrl(extensionId));
+  const nav = (await page.getByRole('navigation', { name: 'Settings sections' }).boundingBox())!;
+  const card = (await page.getByRole('region', { name: 'AI provider' }).boundingBox())!;
+  expect(nav.y + nav.height).toBeLessThanOrEqual(card.y);
+  expect(nav.width).toBeGreaterThan(400); // not the 200px column
+});
+
 for (const mode of ['never resolves', 'rejects'] as const) {
   test(`popup still shows Settings when keyStatus ${mode}`, async ({ page, pagesURL, serviceWorker, extensionId, context }) => {
     await page.goto(`${pagesURL}/textarea.html`);

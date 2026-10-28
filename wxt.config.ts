@@ -30,6 +30,9 @@ export default defineConfig({
   outDir: e2e ? '.output-e2e' : '.output',
   modules: ['@wxt-dev/module-react'],
   vite: () => ({
+    // The Harper worker imports harper.js for its LocalLinter; nothing uses its WorkerLinter, whose inline worker
+    // source (about 110 kB, kept only by a top-level `new Blob`) would otherwise ship inside the worker.
+    worker: { rollupOptions: { treeshake: { manualPureFunctions: ['Blob'] } } },
     define: {
       'import.meta.env.WXT_EXTENSION_ID': JSON.stringify(extensionId),
       // e2e only: the field layers' shadow roots are open, so Playwright's locators reach the underlines.

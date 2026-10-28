@@ -123,7 +123,7 @@ describe('ProviderSection', () => {
     await renderSection();
     await choose('custom');
     expect(field('Endpoint').readOnly).toBe(false);
-    expect(field('This endpoint supports JSON schema').type).toBe('checkbox');
+    expect(field('This endpoint supports JSON schema').getAttribute('role')).toBe('switch');
     type('Endpoint', 'http://example.com');
     type('API key', 'sk-custom');
     await click('Load models');

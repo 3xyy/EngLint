@@ -1,0 +1,84 @@
+[
+  {
+    "id": "gc-club-standard",
+    "mode": "standard",
+    "text": "In order to make a decision about the future of the club, the members had a discussion that was very long. There is a lot of things that we need to improve, and its important that everyone participates. The new schedule will be implemented by the board next month due to the fact that attendance has been really low.",
+    "expect": [
+      {"original": "There is", "replacement": "There are"},
+      {"original": "its", "replacement": "it's"}
+    ],
+    "suggest": [
+      {"original": "In order to", "family": "clarity", "kind": "wordy_phrase", "replacement": "To"},
+      {"original": "make a decision about", "family": "clarity", "kind": "wordy_phrase", "replacement": "decide"},
+      {"original": "a discussion that was very long", "family": "clarity", "kind": "wordy_phrase"},
+      {"original": "due to the fact that", "family": "clarity", "kind": "wordy_phrase", "replacement": "because"}
+    ],
+    "acceptable": [
+      {"original": "will be implemented by the board", "family": "clarity"},
+      {"original": "very long", "family": "engagement"},
+      {"original": "a lot of things", "family": "engagement"},
+      {"original": "really low", "family": "engagement"}
+    ]
+  },
+  {
+    "id": "gc-hospital-standard",
+    "mode": "standard",
+    "text": "My summer job at the hospital was a very good experience that taught me a lot of things. I did many different tasks every day, and the nurses were really nice to me. One thing that I learned is that communication is very important. The work was hard but it was also very rewarding, and it made me want to become a doctor even more than before.",
+    "expect": [
+      {"original": "hard but", "replacement": "hard, but"}
+    ],
+    "suggest": [
+      {"original": "very good", "family": "engagement", "kind": "vague_word"},
+      {"original": "a lot of things", "family": "engagement", "kind": "vague_word"},
+      {"original": "very important", "family": "engagement", "kind": "vague_word"}
+    ],
+    "acceptable": [
+      {"original": "many different tasks", "family": "clarity"},
+      {"original": "really nice", "family": "engagement"},
+      {"original": "One thing that I learned is that", "family": "clarity"},
+      {"original": "very rewarding", "family": "engagement"},
+      {"original": "even more than before", "family": "clarity"}
+    ]
+  },
+  {
+    "id": "gc-club-essay",
+    "mode": "essay",
+    "text": "In order to make a decision about the future of the club, the members had a discussion that was very long. There is a lot of things that we need to improve, and its important that everyone participates. The new schedule will be implemented by the board next month due to the fact that attendance has been really low.",
+    "expect": [
+      {"original": "There is", "replacement": "There are"},
+      {"original": "its", "replacement": "it's"}
+    ],
+    "suggest": [
+      {"original": "In order to", "family": "clarity", "kind": "wordy_phrase", "replacement": "To"},
+      {"original": "make a decision about", "family": "clarity", "kind": "wordy_phrase", "replacement": "decide"},
+      {"original": "a discussion that was very long", "family": "clarity", "kind": "wordy_phrase"},
+      {"original": "due to the fact that", "family": "clarity", "kind": "wordy_phrase", "replacement": "because"}
+    ],
+    "acceptable": [
+      {"original": "will be implemented by the board", "family": "clarity"},
+      {"original": "very long", "family": "engagement"},
+      {"original": "a lot of things", "family": "engagement"},
+      {"original": "really low", "family": "engagement"}
+    ]
+  },
+  {
+    "id": "gc-hospital-essay",
+    "mode": "essay",
+    "text": "My summer job at the hospital was a very good experience that taught me a lot of things. I did many different tasks every day, and the nurses were really nice to me. One thing that I learned is that communication is very important. The work was hard but it was also very rewarding, and it made me want to become a doctor even more than before.",
+    "expect": [
+      {"original": "hard but", "replacement": "hard, but"}
+    ],
+    "suggest": [
+      {"original": "very good", "family": "engagement", "kind": "vague_word"},
+      {"original": "a lot of things", "family": "engagement", "kind": "vague_word"},
+      {"original": "very important", "family": "engagement", "kind": "vague_word"}
+    ],
+    "acceptable": [
+      {"original": "many different tasks", "family": "clarity"},
+      {"original": "really nice", "family": "engagement"},
+      {"original": "One thing that I learned is that", "family": "clarity"},
+      {"original": "very rewarding", "family": "engagement"},
+      {"original": "even more than before", "family": "clarity"}
+    ]
+  }
+]

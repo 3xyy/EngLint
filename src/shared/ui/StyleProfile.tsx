@@ -8,6 +8,7 @@ import { toolStatusText } from '../status-text';
 import { useProviderInfo } from '../use-provider-info';
 import { useSetting } from '../use-setting';
 import { useSpend } from '../use-spend';
+import { Button, Pill } from './controls';
 
 /**
  * The options page's "Your writing style": the writer pastes pieces, the background describes how they write, and
@@ -95,55 +96,43 @@ export function StyleProfile() {
   // words "Cost not known" for a model with no prices (null), never Claude's price.
   const cost = provider ? costLabel(profileBuildCost(samples.length, smartPricing(provider))) : undefined;
   return (
-    <>
+    <div className="style-profile">
       <p className="muted">
         Paste one to three pieces you're proud of. EngLint writes a short description of how you write and uses it for rewrites and
         synonyms. The pieces themselves aren't saved.
       </p>
-      <label>
-        <span className="muted">Your writing (one to three pieces)</span>
-        <textarea
-          value={samples}
-          maxLength={MAX_PROFILE_SOURCE_CHARS}
-          rows={6}
-          style={{ width: '100%', boxSizing: 'border-box' }}
-          onChange={(e) => setSamples(e.target.value)}
-        />
+      <label className="field">
+        <span>Your writing (one to three pieces)</span>
+        <textarea value={samples} maxLength={MAX_PROFILE_SOURCE_CHARS} rows={6} onChange={(e) => setSamples(e.target.value)} />
       </label>
-      <p className="muted">
-        {long ? `${samples.length.toLocaleString('en-US')} of ${MAX_PROFILE_SOURCE_CHARS.toLocaleString('en-US')} characters` : `At least ${MIN_PROFILE_SOURCE_CHARS} characters.`}
-      </p>
-      <div className="row" style={{ justifyContent: 'flex-start' }}>
-        <button type="button" className="btn" disabled={busy || !long} onClick={() => void build()}>
+      <div className="style-build">
+        <span className="muted">
+          {long ? `${samples.length.toLocaleString('en-US')} of ${MAX_PROFILE_SOURCE_CHARS.toLocaleString('en-US')} characters` : `At least ${MIN_PROFILE_SOURCE_CHARS} characters.`}
+        </span>
+        <Button variant={draft === null ? 'primary' : 'secondary'} disabled={busy || !long} onClick={() => void build()}>
           {draft === null ? 'Build my style profile' : 'Rebuild'}
           {cost && ` · ${cost}`}
-        </button>
+        </Button>
       </div>
       {cost === null && <p className="muted">{COST_UNKNOWN}</p>}
       {draft !== null && (
         <>
-          <label>
-            <span className="muted">How you write (edit freely)</span>
-            <textarea
-              value={draft}
-              maxLength={MAX_PROFILE_CHARS}
-              rows={7}
-              style={{ width: '100%', boxSizing: 'border-box' }}
-              onChange={(e) => setDraft(e.target.value)}
-            />
+          <label className="field">
+            <span>How you write (edit freely)</span>
+            <textarea value={draft} maxLength={MAX_PROFILE_CHARS} rows={7} onChange={(e) => setDraft(e.target.value)} />
           </label>
-          <div className="row" style={{ justifyContent: 'flex-start' }}>
-            <button type="button" className="btn" disabled={draft.trim() === ''} onClick={() => void save()}>
+          <div className="actions">
+            <Button variant="primary" disabled={draft.trim() === ''} onClick={() => void save()}>
               Save
-            </button>
-            <button type="button" className="btn" onClick={() => void remove()}>
+            </Button>
+            <Button variant="ghost" onClick={() => void remove()}>
               Delete
-            </button>
-            {dirty && <span className="muted">Not saved yet</span>}
+            </Button>
+            {dirty && <Pill tone="accent">Not saved yet</Pill>}
           </div>
         </>
       )}
       {note && <p role="status">{note}</p>}
-    </>
+    </div>
   );
 }

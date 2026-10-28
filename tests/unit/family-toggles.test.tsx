@@ -9,12 +9,14 @@ afterEach(cleanup);
 
 const OFF = { clarity: false, engagement: false, delivery: false, generic: false };
 
-/** A switch's state as shown: checked, indeterminate, and its caption ('' when none). */
+/** A switch's state as shown: on, mixed (its half-way look), and its caption ('' when none). */
 function shown(getByLabelText: (text: string) => HTMLElement, name: string) {
-  const input = getByLabelText(name) as HTMLInputElement;
-  const caption = input.closest('label')!.querySelector('.family-scope')?.textContent ?? '';
-  return { checked: input.checked, mixed: input.indeterminate, caption };
+  const sw = getByLabelText(name);
+  const caption = sw.closest('label')!.querySelector('.family-scope')?.textContent ?? '';
+  return { checked: isOn(sw), mixed: sw.hasAttribute('data-mixed'), caption };
 }
+
+const isOn = (sw: HTMLElement) => sw.getAttribute('role') === 'switch' && sw.getAttribute('aria-checked') === 'true';
 
 describe('FamilyToggles', () => {
   it('shows four switches: on when both modes have the family, off when neither, mixed with where it is on otherwise', async () => {
@@ -24,46 +26,46 @@ describe('FamilyToggles', () => {
       casual: OFF,
     });
     const { getByLabelText } = render(<FamilyToggles />);
-    await waitFor(() => expect((getByLabelText('Clarity') as HTMLInputElement).checked).toBe(true));
+    await waitFor(() => expect(isOn(getByLabelText('Clarity'))).toBe(true));
     expect(shown(getByLabelText, 'Clarity')).toEqual({ checked: true, mixed: false, caption: '' });
     expect(shown(getByLabelText, 'Engagement')).toEqual({ checked: false, mixed: true, caption: 'Essays only' });
     expect(shown(getByLabelText, 'Delivery')).toEqual({ checked: false, mixed: true, caption: 'Other writing only' });
     expect(shown(getByLabelText, 'Generic phrasing')).toEqual({ checked: false, mixed: false, caption: '' });
   });
 
-  it('with the shipped defaults, Engagement and Delivery read mixed, "Essays only"', async () => {
+  it('with the shipped defaults, Clarity and Engagement read on and Delivery reads mixed, "Essays only"', async () => {
     const { getByLabelText } = render(<FamilyToggles />);
-    await waitFor(() => expect((getByLabelText('Clarity') as HTMLInputElement).checked).toBe(true));
+    await waitFor(() => expect(isOn(getByLabelText('Clarity'))).toBe(true));
     expect(shown(getByLabelText, 'Clarity')).toEqual({ checked: true, mixed: false, caption: '' });
-    expect(shown(getByLabelText, 'Engagement')).toEqual({ checked: false, mixed: true, caption: 'Essays only' });
+    expect(shown(getByLabelText, 'Engagement')).toEqual({ checked: true, mixed: false, caption: '' });
     expect(shown(getByLabelText, 'Delivery')).toEqual({ checked: false, mixed: true, caption: 'Essays only' });
     expect(shown(getByLabelText, 'Generic phrasing')).toEqual({ checked: false, mixed: false, caption: '' });
   });
 
   it('a click on a mixed switch turns it on in both modes; a second click turns it off in both; casual stays off', async () => {
     const { getByLabelText } = render(<FamilyToggles />);
-    await waitFor(() => expect(shown(getByLabelText, 'Engagement').mixed).toBe(true));
+    await waitFor(() => expect(shown(getByLabelText, 'Delivery').mixed).toBe(true));
     const read = async () => (await suggestionFamiliesByModeItem.getValue())!;
 
-    await act(async () => fireEvent.click(getByLabelText('Engagement')));
-    await waitFor(async () => expect((await read())?.standard.engagement).toBe(true));
+    await act(async () => fireEvent.click(getByLabelText('Delivery')));
+    await waitFor(async () => expect((await read())?.standard.delivery).toBe(true));
     expect(await read()).toEqual({
       essay: { clarity: true, engagement: true, delivery: true, generic: false },
-      standard: { clarity: true, engagement: true, delivery: false, generic: false },
+      standard: { clarity: true, engagement: true, delivery: true, generic: false },
       casual: OFF,
     });
-    expect(shown(getByLabelText, 'Engagement')).toEqual({ checked: true, mixed: false, caption: '' });
+    expect(shown(getByLabelText, 'Delivery')).toEqual({ checked: true, mixed: false, caption: '' });
 
-    await act(async () => fireEvent.click(getByLabelText('Engagement')));
-    await waitFor(async () => expect((await read()).essay.engagement).toBe(false));
-    expect((await read()).standard.engagement).toBe(false);
+    await act(async () => fireEvent.click(getByLabelText('Delivery')));
+    await waitFor(async () => expect((await read()).essay.delivery).toBe(false));
+    expect((await read()).standard.delivery).toBe(false);
     expect((await read()).casual).toEqual(OFF);
-    expect(shown(getByLabelText, 'Engagement')).toEqual({ checked: false, mixed: false, caption: '' });
+    expect(shown(getByLabelText, 'Delivery')).toEqual({ checked: false, mixed: false, caption: '' });
   });
 
   it('a click on an off switch turns it on in both modes, and on an on switch off in both', async () => {
     const { getByLabelText } = render(<FamilyToggles />);
-    await waitFor(() => expect((getByLabelText('Clarity') as HTMLInputElement).checked).toBe(true));
+    await waitFor(() => expect(isOn(getByLabelText('Clarity'))).toBe(true));
     const read = async () => (await suggestionFamiliesByModeItem.getValue())!;
 
     await act(async () => fireEvent.click(getByLabelText('Generic phrasing')));
@@ -79,8 +81,8 @@ describe('FamilyToggles', () => {
 
   it('with nothing saved yet it shows the defaults and saves nothing until a flip', async () => {
     const { getByLabelText } = render(<FamilyToggles />);
-    await waitFor(() => expect((getByLabelText('Clarity') as HTMLInputElement).checked).toBe(true));
-    expect((getByLabelText('Generic phrasing') as HTMLInputElement).checked).toBe(false);
+    await waitFor(() => expect(isOn(getByLabelText('Clarity'))).toBe(true));
+    expect(isOn(getByLabelText('Generic phrasing'))).toBe(false);
     expect(await suggestionFamiliesByModeItem.getValue()).toBeNull();
   });
 });

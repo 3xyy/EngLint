@@ -258,3 +258,13 @@ export function visibleBox(anchor: Element): Box {
 export function firstVisible(rects: DOMRect[], box: Box): number {
   return rects.findIndex((r) => r.right > box.left && r.left < box.right && r.bottom > box.top && r.top < box.bottom);
 }
+
+/** The box around every one of `rects` (each line of a selection); null for none. */
+export function boxAround(rects: readonly DOMRect[]): DOMRect | null {
+  if (rects.length === 0) return null;
+  const left = Math.min(...rects.map((r) => r.left));
+  const top = Math.min(...rects.map((r) => r.top));
+  const right = Math.max(...rects.map((r) => r.right));
+  const bottom = Math.max(...rects.map((r) => r.bottom));
+  return new DOMRect(left, top, right - left, bottom - top);
+}

@@ -40,7 +40,7 @@ test('four family switches replace Clarity notes; Engagement off writes essay an
   expect(legacy).toEqual({}); // nothing writes the old setting any more
 });
 
-test('with the shipped defaults Clarity reads on and Engagement and Delivery read mixed, "Essays only"; a click turns one on in both modes, a second click off in both', async ({
+test('with the shipped defaults Clarity and Engagement read on and Delivery reads mixed, "Essays only"; a click turns it on in both modes, a second click off in both', async ({
   page,
   extensionId,
   serviceWorker,
@@ -48,25 +48,68 @@ test('with the shipped defaults Clarity reads on and Engagement and Delivery rea
   await page.goto(optionsUrl(extensionId));
   const engagement = page.getByLabel('Engagement', { exact: true });
   const delivery = page.getByLabel('Delivery', { exact: true });
-  for (const toggle of [engagement, delivery]) {
-    await expect(toggle).toHaveJSProperty('indeterminate', true);
-    await expect(toggle).toHaveJSProperty('checked', false);
-    await expect(toggle).toHaveAccessibleDescription('Essays only');
+  for (const name of ['Clarity', 'Engagement']) {
+    await expect(page.getByLabel(name, { exact: true })).not.toHaveAttribute('data-mixed');
+    await expect(page.getByLabel(name, { exact: true })).toBeChecked();
   }
-  await expect(page.getByLabel('Clarity', { exact: true })).toHaveJSProperty('indeterminate', false);
-  await expect(page.getByLabel('Clarity', { exact: true })).toBeChecked();
+  // A switch has no mixed state for assistive technology: half on reads off, with where it is on as its description.
+  await expect(delivery).toHaveRole('switch');
+  await expect(delivery).toHaveAttribute('data-mixed');
+  await expect(delivery).not.toBeChecked();
+  await expect(delivery).toHaveAccessibleDescription('Essays only');
+  await expect(page.getByText('Essays only')).toHaveCount(1);
 
   const read = async () => (await serviceWorker.evaluate(() => chrome.storage.local.get('suggestionFamiliesByMode'))).suggestionFamiliesByMode;
-  await engagement.click();
-  await expect.poll(async () => [(await read())?.essay.engagement, (await read())?.standard.engagement]).toEqual([true, true]);
-  await expect(engagement).toHaveJSProperty('indeterminate', false);
-  await expect(engagement).toBeChecked();
-  await expect(page.getByText('Essays only')).toHaveCount(1); // Delivery's
+  await delivery.click();
+  await expect.poll(async () => [(await read())?.essay.delivery, (await read())?.standard.delivery]).toEqual([true, true]);
+  await expect(delivery).not.toHaveAttribute('data-mixed');
+  await expect(delivery).toBeChecked();
+  await expect(page.getByText('Essays only')).toHaveCount(0);
+  await delivery.click();
+  await expect.poll(async () => [(await read())?.essay.delivery, (await read())?.standard.delivery]).toEqual([false, false]);
+  await expect(delivery).not.toHaveAttribute('data-mixed');
+  await expect(delivery).not.toBeChecked();
+  expect((await read()).casual.delivery).toBe(false);
   await engagement.click();
   await expect.poll(async () => [(await read())?.essay.engagement, (await read())?.standard.engagement]).toEqual([false, false]);
-  await expect(engagement).toHaveJSProperty('indeterminate', false);
   await expect(engagement).not.toBeChecked();
-  expect((await read()).casual.engagement).toBe(false);
+});
+
+test('Engagement saved at the old defaults (on for essays only) is turned on for other writing too, once; off in both it stays off', async ({
+  page,
+  extensionId,
+  serviceWorker,
+}) => {
+  const OFF = { clarity: false, engagement: false, delivery: false, generic: false };
+  const saved = (essay: boolean, standard: boolean) => ({
+    essay: { clarity: true, engagement: essay, delivery: true, generic: false },
+    standard: { clarity: true, engagement: standard, delivery: false, generic: false },
+    casual: OFF,
+  });
+  const seed = (value: unknown) => serviceWorker.evaluate((v) => chrome.storage.local.set({ suggestionFamiliesByMode: v }), value);
+  const read = async () => (await serviceWorker.evaluate(() => chrome.storage.local.get(null))) as Record<string, unknown>;
+  const engagement = page.getByLabel('Engagement', { exact: true });
+
+  await seed(saved(true, false));
+  await page.goto(optionsUrl(extensionId));
+  await expect(engagement).toBeChecked();
+  await expect(engagement).not.toHaveAttribute('data-mixed');
+  await expect.poll(async () => (await read()).suggestionFamiliesByMode).toEqual(saved(true, true));
+  expect((await read())['suggestionFamiliesByMode$']).toEqual({ v: 2 });
+
+  // Version 2 is recorded, so the migration never runs again: whatever is saved now is read as saved.
+  await seed(saved(true, false));
+  await page.reload();
+  await expect(engagement).toHaveAttribute('data-mixed');
+  expect((await read()).suggestionFamiliesByMode).toEqual(saved(true, false));
+
+  await serviceWorker.evaluate(() => chrome.storage.local.clear());
+  await seed(saved(false, false));
+  await page.reload();
+  await expect(page.getByLabel('Clarity', { exact: true })).toBeChecked();
+  await expect(engagement).not.toBeChecked();
+  await expect(engagement).not.toHaveAttribute('data-mixed');
+  expect((await read()).suggestionFamiliesByMode).toEqual(saved(false, false));
 });
 
 const LOCAL_CHECKS_HELP = "Underlines from EngLint's built-in checker appear as you type and work without the API.";
@@ -129,7 +172,7 @@ test('Your rules lists a rule and a word, and Remove deletes each', async ({ pag
   await expect.poll(async () => (await serviceWorker.evaluate(() => chrome.storage.local.get('rules'))).rules).toEqual([]);
   await rules.getByRole('button', { name: /^Remove .kubernetes/ }).click();
   await expect.poll(async () => (await serviceWorker.evaluate(() => chrome.storage.local.get('dictionary'))).dictionary).toEqual([]);
-  await expect(rules).toContainText('Nothing here yet. Use “Stop suggesting” or “Add to dictionary” on a card.');
+  await expect(rules).toContainText("Nothing here yet. Use Stop suggesting or Add “word” to dictionary in a card's ⋯ menu.");
 });
 
 test('Your writing style: paste pieces, build, see the profile, edit and save; only the profile is stored', async ({

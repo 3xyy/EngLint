@@ -1,6 +1,6 @@
 import { storage } from 'wxt/utils/storage';
 import type { CitationStyle } from '../core/citations';
-import { ESSAY_SITES_DEFAULT, migrateFamilies } from '../core/modes';
+import { ESSAY_SITES_DEFAULT, migrateFamilies, migrateStandardEngagement } from '../core/modes';
 import type { Dialect, FamilyToggles, Mode } from '../core/types';
 import { DEFAULT_PROVIDER, type ProviderConfig } from '../core/provider';
 import { dictionaryForm } from '../core/typography';
@@ -25,10 +25,13 @@ export const providerItem = storage.defineItem<ProviderConfig>('local:provider',
 /** USD spent per month, keyed by monthKey(). */
 export const spendItem = storage.defineItem<Record<string, number>>('local:spend', { fallback: {} });
 
-/** Per-mode suggestion-family toggles. null until first read, which migrates from clarityByMode. */
+/**
+ * Per-mode suggestion-family toggles. null until first read, which migrates from clarityByMode. Version 2 turns on an
+ * untouched Engagement in Standard (migrateStandardEngagement), once.
+ */
 export const suggestionFamiliesByModeItem = storage.defineItem<Record<Mode, FamilyToggles> | null>(
   'local:suggestionFamiliesByMode',
-  { fallback: null },
+  { fallback: null, version: 2, migrations: { 2: migrateStandardEngagement } },
 );
 
 /** The toggles in effect, without saving anything: the stored value, or what the first read would migrate to. */

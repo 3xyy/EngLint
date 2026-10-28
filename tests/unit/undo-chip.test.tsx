@@ -5,8 +5,8 @@ import { Card } from '../../src/content/overlay/Card';
 import { mountOverlay, type OverlayHandle } from '../../src/content/overlay/mount';
 import type { LocatedIssue } from '../../src/core/types';
 
-// The overlay's undo chip (OverlayHandle.showUndo), on the real overlay: the shadow-root UI is stubbed to
-// mount its React root into an open shadow root the test can read.
+// The overlay's undo and offer chips (OverlayHandle.showUndo, showOffer) and its card, on the real overlay: the
+// shadow-root UI is stubbed to mount its React root into an open shadow root the test can read.
 
 const ui = vi.hoisted(() => ({ shadow: null as ShadowRoot | null }));
 vi.mock('wxt/utils/content-script-ui/shadow-root', () => ({
@@ -252,5 +252,50 @@ describe('the offer chip', () => {
     await offer();
     await act(async () => overlay.clear('f1'));
     expect(chip()).toBeNull();
+  });
+});
+
+describe('the card on the overlay', () => {
+  const ISSUE = {
+    id: 'i1',
+    original: 'has',
+    replacement: 'have',
+    before: 'I',
+    reason: 'Use "have" with "I".',
+    start: 2,
+    end: 5,
+    severity: 'error',
+    category: 'grammar',
+    kind: 'subject_verb_agreement',
+    paragraphHash: 'h',
+    model: { original: 'has', replacement: 'have' },
+  } as unknown as LocatedIssue;
+  const card = () => ui.shadow!.querySelector<HTMLElement>('.englint-card');
+  async function openCard() {
+    await act(async () => {
+      overlay.render('f1', [{ issue: ISSUE, rects: [ANCHOR], context: { before: 'Last week I ', after: ' a cat.' } }]);
+      overlay.open('f1', 'i1');
+    });
+    return card()!;
+  }
+  const escape = (target: Element) => act(async () => void target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true })));
+
+  it('previews the change in the words its render brought', async () => {
+    expect((await openCard()).querySelector('.englint-card-preview')!.textContent).toBe('Last week I hashave a cat.');
+  });
+
+  it('Escape in its "⋯" menu closes the menu and leaves the card open; the next Escape closes the card', async () => {
+    const open = await openCard();
+    const more = open.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+    more.focus();
+    await act(async () => void more.click()); // a key's click (detail 0): focus goes to the first item
+    const item = ui.shadow!.activeElement!;
+    expect(item.getAttribute('role')).toBe('menuitem');
+    await escape(item);
+    expect(card()).not.toBeNull();
+    expect(card()!.querySelector('[role="menu"]')).toBeNull();
+    expect(ui.shadow!.activeElement).toBe(more);
+    await escape(more);
+    expect(card()).toBeNull();
   });
 });

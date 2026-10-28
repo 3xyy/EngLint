@@ -12,6 +12,7 @@ import {
 } from '../../src/background/harper';
 import type { SourcedIssue } from '../../src/core/sources';
 import { createOffscreenListener, handleOffscreenMessage } from '../../src/offscreen/harper-host';
+import { createWorkerLint, type WorkerLike } from '../../src/offscreen/harper-worker';
 import {
   HARPER_OFFSCREEN,
   type HarperCheckRequest,
@@ -226,6 +227,30 @@ describe('harperCheck routing', () => {
     expect(ensureOffscreen).toHaveBeenCalledTimes(2);
     expect(closeOffscreen).toHaveBeenCalledOnce();
     expect(HARPER_TIMEOUTS_BEFORE_CLOSE).toBe(2);
+  });
+
+  it('a Harper worker that fails to load gives empty results when it fails, not at the deadline; checks get none for a minute, then a new worker is made', async () => {
+    vi.useFakeTimers();
+    // Each worker fails to load a moment after it is made, as a module script that can't be fetched does.
+    const make = vi.fn((): WorkerLike => {
+      const listeners: Record<string, ((e: unknown) => void)[]> = {};
+      setTimeout(() => (listeners.error ?? []).forEach((cb) => cb(new Event('error'))), 5);
+      return { postMessage() {}, terminate() {}, addEventListener: (type, cb) => void (listeners[type] ??= []).push(cb) };
+    });
+    const lint = createWorkerLint(make, 'u');
+    const { router, sendToOffscreen, closeOffscreen } = setup({ send: (m) => lint(m) });
+    const first = router.check(REQ, CONTENT);
+    await vi.advanceTimersByTimeAsync(5);
+    expect(await first).toEqual(EMPTY);
+    expect(await router.check(REQ, CONTENT)).toEqual(EMPTY); // the backoff: nothing sent
+    expect(sendToOffscreen).toHaveBeenCalledTimes(1);
+    expect(make).toHaveBeenCalledTimes(1);
+    clock += HARPER_RETRY_MS;
+    const later = router.check(REQ, CONTENT);
+    await vi.advanceTimersByTimeAsync(5);
+    expect(await later).toEqual(EMPTY);
+    expect(make).toHaveBeenCalledTimes(2); // a new worker for the check after the backoff
+    expect(closeOffscreen).not.toHaveBeenCalled(); // no check waited out the deadline
   });
 
   it('keeps the document when an answer in time comes between two late ones', async () => {

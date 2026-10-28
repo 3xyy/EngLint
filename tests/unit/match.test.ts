@@ -118,14 +118,33 @@ describe('issueId', () => {
 });
 
 describe('selectIssues', () => {
-  it('caps are 3 suggestions per paragraph and 2 per family', () => {
-    expect([MAX_SUGGESTIONS, MAX_PER_FAMILY]).toEqual([3, 2]);
+  it('caps are 5 suggestions per paragraph and 3 per family', () => {
+    expect([MAX_SUGGESTIONS, MAX_PER_FAMILY]).toEqual([5, 3]);
   });
   it('drops error without replacement', () => {
     expect(selectIssues(para('teh cat'), [raw({ replacement: null })], opts)).toEqual([]);
   });
   it('drops no-op', () => {
     expect(selectIssues(para('teh cat'), [raw({ replacement: 'teh' })], opts)).toEqual([]);
+  });
+  it('drops a suggestion whose replacement differs from its original only in case or surrounding spaces', () => {
+    const text = para('I did many different tasks every day.');
+    for (const replacement of ['many different tasks', 'Many Different Tasks', ' many different tasks ', 'many  different tasks']) {
+      const s = sug('many different tasks', { kind: 'redundancy', replacement });
+      expect(selectIssues(text, [s], opts), JSON.stringify(replacement)).toEqual([]);
+    }
+    const real = sug('many different tasks', { kind: 'redundancy', replacement: 'many tasks' });
+    expect(selectIssues(text, [real], opts).map((i) => i.replacement)).toEqual(['many tasks']);
+  });
+  it('drops a suggestion that is a no-op once located in curled text, whatever the case', () => {
+    const s = sug("don't know", { kind: 'wordy_phrase', replacement: 'Don’t know' });
+    expect(selectIssues(para('I don’t know.'), [s], opts)).toEqual([]);
+  });
+  it('keeps an error whose fix only changes case, and drops one whose fix is the same text', () => {
+    const cap = raw({ original: 'monday', replacement: 'Monday', category: 'grammar', kind: 'capitalization' });
+    expect(selectIssues(para('We met on monday.'), [cap], opts).map((i) => i.replacement)).toEqual(['Monday']);
+    const same = raw({ original: 'monday', replacement: 'monday', category: 'grammar', kind: 'capitalization' });
+    expect(selectIssues(para('We met on monday.'), [same], opts)).toEqual([]);
   });
   it('hides suggestions when clarity off', () => {
     const s = raw({ severity: 'suggestion', category: 'clarity', kind: 'wordy_phrase' });
@@ -145,15 +164,28 @@ describe('selectIssues', () => {
   });
   it('comment-only notes count toward the per-family cap', () => {
     const note = (original: string) => sug(original, { replacement: null });
-    const out = selectIssues(para('aa bb cc dd'), [note('aa'), note('bb'), sug('cc')], opts);
-    expect(out.map((i) => i.original)).toEqual(['aa', 'bb']);
+    const out = selectIssues(para('aa bb cc dd'), [note('aa'), note('bb'), note('cc'), sug('dd')], opts);
+    expect(out.map((i) => i.original)).toEqual(['aa', 'bb', 'cc']);
   });
   it('drops unlocatable issues', () => {
     expect(selectIssues(para('hello'), [raw({})], opts)).toEqual([]);
   });
-  it('keeps at most 2 suggestions from one family, the earliest first', () => {
-    const out = selectIssues(para('aa bb cc dd'), [sug('dd'), sug('cc'), sug('bb')], opts);
-    expect(out.map((i) => i.original)).toEqual(['bb', 'cc']);
+  it('keeps at most 3 suggestions from one family, the earliest first', () => {
+    const out = selectIssues(para('aa bb cc dd ee'), [sug('ee'), sug('dd'), sug('cc'), sug('bb')], opts);
+    expect(out.map((i) => i.original)).toEqual(['bb', 'cc', 'dd']);
+  });
+  it('keeps five suggestions in a paragraph, at most three from one family', () => {
+    const issues = [
+      sug('aa', { category: 'clarity' }),
+      sug('bb', { category: 'clarity' }),
+      sug('cc', { category: 'clarity' }),
+      sug('dd', { category: 'clarity' }),
+      sug('ee', { category: 'engagement' }),
+      sug('ff', { category: 'engagement' }),
+      sug('gg', { category: 'delivery' }),
+    ];
+    const out = selectIssues(para('aa bb cc dd ee ff gg'), issues, opts);
+    expect(out.map((i) => i.original)).toEqual(['aa', 'bb', 'cc', 'ee', 'ff']);
   });
   it('error wins overlap', () => {
     const s = raw({ original: 'big cat', replacement: 'cat', severity: 'suggestion', kind: 'wordy_phrase' });
@@ -350,16 +382,17 @@ describe('selectIssues', () => {
         raw({ original: 'ii', replacement: 'x', kind: 'e3' }),
       ];
       const out = selectIssues(text, issues, opts);
-      // 2 clarity (cc, ee), 1 engagement (bb), 0 delivery; all 4 errors.
-      expect(out.map((i) => i.original)).toEqual(['bb', 'cc', 'ee', 'gg', 'hh', 'ii', 'jj']);
+      // 3 clarity (cc, ee, ff), 2 engagement (bb, dd), 0 delivery; all 4 errors.
+      expect(out.map((i) => i.original)).toEqual(['bb', 'cc', 'dd', 'ee', 'ff', 'gg', 'hh', 'ii', 'jj']);
     });
     it('generic phrasing shares the delivery cap', () => {
       const issues = [
         sug('aa', { category: 'delivery', kind: 'hedging' }),
         sug('bb', { category: 'delivery', kind: 'generic_phrasing' }),
         sug('cc', { category: 'delivery', kind: 'formality' }),
+        sug('dd', { category: 'delivery', kind: 'generic_phrasing' }),
       ];
-      expect(selectIssues(para('aa bb cc'), issues, opts).map((i) => i.original)).toEqual(['aa', 'bb']);
+      expect(selectIssues(para('aa bb cc dd'), issues, opts).map((i) => i.original)).toEqual(['aa', 'bb', 'cc']);
     });
 
     it('a known kind filed under another category follows its own family for toggles and caps', () => {
@@ -370,9 +403,10 @@ describe('selectIssues', () => {
       const issues = [
         sug('aa', { category: 'engagement', kind: 'repeated_word' }),
         sug('bb', { category: 'engagement', kind: 'overused_word' }),
+        sug('dd', { category: 'engagement', kind: 'repeated_word' }),
         vague,
       ];
-      expect(selectIssues(para('aa bb cc'), issues, opts).map((i) => i.original)).toEqual(['aa', 'bb']);
+      expect(selectIssues(para('aa bb dd cc'), issues, opts).map((i) => i.original)).toEqual(['aa', 'bb', 'dd']);
     });
     it('generic phrasing follows the generic toggle under any category', () => {
       for (const category of ['engagement', 'word_choice'] as const) {

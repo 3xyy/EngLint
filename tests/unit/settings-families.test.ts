@@ -62,6 +62,34 @@ describe('readSuggestionFamilies', () => {
   });
 });
 
+describe('the stored families from before Engagement was on in Standard', () => {
+  const OFF = { clarity: false, engagement: false, delivery: false, generic: false };
+  const saved = (essay: boolean, standard: boolean) => ({
+    essay: { clarity: true, engagement: essay, delivery: true, generic: false },
+    standard: { clarity: true, engagement: standard, delivery: false, generic: false },
+    casual: OFF,
+  });
+
+  it('an Engagement nobody touched (on in Essay, off in Standard) turns on in Standard, once', async () => {
+    await fakeBrowser.storage.local.set({ suggestionFamiliesByMode: saved(true, false) });
+    await suggestionFamiliesByModeItem.migrate();
+    expect(await readSuggestionFamilies()).toEqual(saved(true, true));
+    expect(await fakeBrowser.storage.local.get('suggestionFamiliesByMode')).toEqual({ suggestionFamiliesByMode: saved(true, true) });
+    // Migrated: a later run leaves whatever is stored alone.
+    await fakeBrowser.storage.local.set({ suggestionFamiliesByMode: saved(true, false) });
+    await suggestionFamiliesByModeItem.migrate();
+    expect(await readSuggestionFamilies()).toEqual(saved(true, false));
+  });
+  it('an Engagement the writer turned off stays off', async () => {
+    await fakeBrowser.storage.local.set({ suggestionFamiliesByMode: saved(false, false) });
+    await suggestionFamiliesByModeItem.migrate();
+    expect(await readSuggestionFamilies()).toEqual(saved(false, false));
+  });
+  it('fresh storage: Engagement is on in Standard', async () => {
+    expect((await readSuggestionFamilies()).standard.engagement).toBe(true);
+  });
+});
+
 describe('rules and dictionary items', () => {
   it('default to empty', async () => {
     expect(await rulesItem.getValue()).toEqual([]);

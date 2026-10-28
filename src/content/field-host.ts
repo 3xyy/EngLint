@@ -3,7 +3,7 @@
 // gdocs.content.ts attaches the one Docs field.
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { canApply, locateEdit, type ChatFocus } from '../core/chat-format';
-import { sentenceAround, trimRange } from '../core/context';
+import { contextAround, isSingleWord, sentenceAround, trimRange } from '../core/context';
 import type { SuggestionPolicy } from '../core/match';
 import { defaultFamilies, effectiveMode } from '../core/modes';
 import { focusFor } from '../core/presets';
@@ -27,17 +27,20 @@ import { APPLY_FAILED, APPLY_FAILED_COPIED } from '../shared/status-text';
 import type { EditorAdapter } from './adapters/types';
 import { cardAction, offerAfterDismiss } from './card-actions';
 import { deepActiveElement } from './detect';
-import { type FieldSelection, MAX_SELECTION_CHARS, readFieldSelection } from './tools/selection';
+import { type FieldSelection, MAX_SELECTION_CHARS, overLimit, readFieldSelection } from './tools/selection';
 import { createToolsController, TOOLS_COPY, type ToolsController, type ToolsRange } from './tools/tools-controller';
-import { findLayerAnchor, scrollMoves, scrollMovesText, visibleBox } from './overlay/anchor';
+import { boxAround, findLayerAnchor, scrollMoves, scrollMovesText, visibleBox } from './overlay/anchor';
+import { topFamily } from './overlay/Badge';
 import type { CardSide } from './overlay/Card';
 import { mountOverlay, type OverlayHandle } from './overlay/mount';
 import { FieldSession } from './session';
 
 const NOTICE_MS = 5000;
+/** Characters of the field's text each side of an issue that its card's preview gets (it shows up to 6 words). */
+const PREVIEW_CHARS = 100;
 /** Shown when the badge's click couldn't open the side panel. */
 export const OPEN_PANEL_NOTICE = 'Open the full panel from the EngLint icon in the toolbar.';
-/** A selection settles this long before the button follows it (drags and shift-arrows fire many events). */
+/** A selection settles this long before the bar follows it (drags and shift-arrows fire many events). */
 export const SELECTION_DEBOUNCE_MS = 150;
 /**
  * A field whose layer the page kept taking out (RenderResult `unstable`) draws in the fixed layer this
@@ -204,10 +207,10 @@ export interface FieldHost {
   closeUndo(): void;
   /**
    * The selection may have changed (a key or the pointer where this document can't see it, such as Docs'
-   * text-event iframe): the button follows it shortly.
+   * text-event iframe): the bar follows it shortly.
    */
   selectionChanged(): void;
-  /** Hides the selection button now; `stay`: it stays hidden until the selection changes (Esc). */
+  /** Hides the selection bar now; `stay`: it stays hidden until the selection changes (Esc). */
   hideSelection(stay?: boolean): void;
   /**
    * Focus may have moved where this document's focus events can't tell (Docs' text-event iframe): the
@@ -219,8 +222,8 @@ export interface FieldHost {
   /** The attached field that has focus, if any. */
   focusedField(): Field | undefined;
   /**
-   * Opens the tools popover on `range` of `f` (the right-click menu, the shortcut, the selection button),
-   * mounting the overlay first if needed. The popover takes the button's place. False when `f` left meanwhile.
+   * Opens the tools popover on `range` of `f` (the right-click menu, the shortcut, the selection bar),
+   * mounting the overlay first if needed. The popover takes the bar's place. False when `f` left meanwhile.
    */
   openTools(f: Field, range: ToolsRange, request?: OpenToolsRequest): Promise<boolean>;
   /** A notice that hides itself after a few seconds. */
@@ -300,7 +303,17 @@ export function createFieldHost(ctx: ContentScriptContext, opts: FieldHostOption
   const getOverlay = () =>
     (overlay ??= mountOverlay(ctx).then((o) => {
       mounted = o;
-      tools = createToolsController({ overlay: o, host, getMode: settings.mode, send: sendMessage });
+      tools = createToolsController({
+        overlay: o,
+        host,
+        getMode: settings.mode,
+        send: sendMessage,
+        // Closed with nothing applied: the bar comes back for the same selection, to try another action.
+        onClosedByUser: () => {
+          dismissedKey = null;
+          selectionChanged();
+        },
+      });
       o.onAccept((fieldId, issueId) => {
         const f = byId(fieldId);
         if (f) void accept(f, issueId);
@@ -397,7 +410,10 @@ export function createFieldHost(ctx: ContentScriptContext, opts: FieldHostOption
     return ok;
   }
 
-  /** A comment-only note's "Rewrite this sentence": the tools popover opens on the issue's sentence, Rewrite first. */
+  /**
+   * A card's "Rewrite sentence" (a note's primary, or in the "⋯" menu): the tools popover opens on the issue's sentence,
+   * Rewrite first.
+   */
   async function rewriteSentence(f: Field, issueId: string): Promise<boolean> {
     const issue = f.session.issues().find((i) => i.id === issueId);
     if (!issue) return false;
@@ -481,18 +497,19 @@ export function createFieldHost(ctx: ContentScriptContext, opts: FieldHostOption
     }
   }
 
-  // ---- the selection button: the focused field's selection, after a settled selection event ----
-  // FieldHost alone shows and hides the button (`shown`). Pressing it, the menu and the shortcut all open the
+  // ---- the selection bar: the focused field's selection, after a settled selection event ----
+  // FieldHost alone shows and hides the bar (`shown`). A pick on it, the menu and the shortcut all open the
   // tools popover through openTools, which hides it; while that is open (the controller knows), none is shown.
   let selTimer: number | undefined;
   let selSeq = 0; // a newer refresh or a hide makes an older one stop
   let shown: { field: Field; key: string } | null = null;
-  let dismissedKey: string | null = null; // Esc: hidden until the selection changes
+  // Esc on the bar, or the popover opened on it: hidden until the selection changes (or the popover closes unapplied).
+  let dismissedKey: string | null = null;
   const hideButton = () => {
     selSeq++;
     clearTimeout(selTimer);
     shown = null;
-    mounted?.showSelectionButton(null, () => {});
+    mounted?.showSelectionBar(null);
   };
   function hideSelection(stay = false) {
     if (stay && shown) dismissedKey = shown.key;
@@ -542,6 +559,7 @@ export function createFieldHost(ctx: ContentScriptContext, opts: FieldHostOption
     if (!tools) await getOverlay(); // the menu or shortcut may come before anything was drawn
     if (!tools || fields.get(f.el) !== f) return false;
     hideButton();
+    dismissedKey = `${f.fieldId}:${range.start}:${range.end}`; // after an apply, not back for the same words
     tools.open(f, range, request);
     return true;
   }
@@ -549,7 +567,7 @@ export function createFieldHost(ctx: ContentScriptContext, opts: FieldHostOption
     const seq = ++selSeq;
     const f = focusedField();
     let selection: FieldSelection | null = null;
-    let anchor: DOMRect | undefined;
+    let anchor: DOMRect | null = null;
     try {
       selection = f ? await readFieldSelection(f.adapter) : null;
       if (f && selection) {
@@ -558,10 +576,12 @@ export function createFieldHost(ctx: ContentScriptContext, opts: FieldHostOption
           .then(() => f.adapter.selectionRects?.())
           .catch(() => null);
         // A painted box counts only on the range's last line: an older highlight may still be recorded.
-        const measured = (await f.adapter.rectsFor(selection.start, selection.end)).at(-1);
+        const lines = await f.adapter.rectsFor(selection.start, selection.end);
+        const measured = lines.at(-1);
         const last = painted?.at(-1);
         const sameLine = last && measured && last.top < measured.bottom && last.bottom > measured.top;
-        anchor = last && (sameLine || !measured) ? last : measured;
+        // The bar sits above the whole selection: its measured lines, with the last line as painted when it is.
+        anchor = boxAround(last && (sameLine || !measured) ? [...lines, last] : lines);
       }
     } catch {
       // no selection to show
@@ -573,14 +593,21 @@ export function createFieldHost(ctx: ContentScriptContext, opts: FieldHostOption
     if (!key) dismissedKey = null;
     if (!f || !selection || !anchor || !key || key === dismissedKey || tools?.isOpen()) {
       shown = null;
-      mounted?.showSelectionButton(null, () => {});
+      mounted?.showSelectionBar(null);
       return;
     }
     const o = await getOverlay();
     if (seq !== selSeq || tools?.isOpen()) return;
     shown = { field: f, key };
     const chosen = selection;
-    o.showSelectionButton(anchor, () => void openTools(f, chosen));
+    const tooLong = overLimit(chosen.text);
+    o.showSelectionBar({
+      at: anchor,
+      mode: settings.mode(),
+      singleWord: isSingleWord(chosen.text),
+      ...(tooLong ? { tooLong } : {}),
+      onPick: (run) => void openTools(f, chosen, run),
+    });
   }
   for (const type of ['selectionchange', 'mouseup', 'keyup']) ctx.addEventListener(document, type, selectionChanged, { capture: true });
   ctx.addEventListener(document, 'keydown', (e) => e.key === 'Escape' && hideSelection(true), { capture: true });
@@ -663,7 +690,12 @@ export function createFieldHost(ctx: ContentScriptContext, opts: FieldHostOption
         : await Promise.all(ranges.map((r) => f.adapter.rectsFor(r.start, r.end, opts)));
       if (seq !== f.renderSeq || fields.get(f.el) !== f) return; // superseded, or the field is gone
       // No await from the rect read to here: the layer's origin is read in the same frame.
-      const items = issues.map((issue, i) => ({ issue, rects: rects[i] ?? [] }));
+      const text = f.session.text(); // the text these issues' offsets slice
+      const items = issues.map((issue, i) => ({
+        issue,
+        rects: rects[i] ?? [],
+        context: contextAround(text, issue.start, issue.end, PREVIEW_CHARS),
+      }));
       const drawn = o.render(f.fieldId, items, {
         field: f.adapter.element,
         anchor,
@@ -770,6 +802,7 @@ export function createFieldHost(ctx: ContentScriptContext, opts: FieldHostOption
         busy: f.session.busy(),
         status: f.session.status(),
         checked: f.session.checked(),
+        family: topFamily(issues),
         caret,
         field: el,
         inset: badgeInset + (resizable(el) ? RESIZE_GRIP : 0),

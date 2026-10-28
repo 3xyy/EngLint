@@ -1,57 +1,67 @@
-:root { color-scheme: light; }
+@import './tokens.css';
+@import './controls.css';
+/* Every extension page follows the system scheme: each colour here is a token, which switches. */
+:root { color-scheme: light dark; }
 body {
   margin: 0;
-  background: #fff;
-  color: #202124;
-  font: 14px/20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--el-bg);
+  color: var(--el-text);
+  font: 14px/1.45 var(--el-font);
 }
 button, select, input, textarea { font: inherit; }
+/* A status problem (StatusBanner): what is wrong and what to do. */
 .banner {
   margin: 0 0 12px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: #fef7e0;
-  border: 1px solid #f9d77e;
-  color: #3c4043;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border);
+  border-left: 3px solid var(--el-generic);
+  border-radius: var(--el-radius-control);
+  background: var(--el-surface);
+  color: var(--el-text);
+  font-size: 13px;
 }
+.banner a, button.link { color: var(--el-accent); }
 button.link {
   padding: 0;
   border: 0;
   background: none;
-  color: #1a73e8;
+  font-weight: 500;
   text-decoration: underline;
   cursor: pointer;
 }
-.muted { color: #5f6368; }
-.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
-/* Where a mixed suggestion switch is on ("Essays only"). */
-.family-scope { font-size: 12px; }
-/* A switch's help line, under its label (lined up with the label's text). */
-.setting-help { margin: -6px 0 8px 24px; font-size: 12px; line-height: 16px; }
-.btn {
-  padding: 6px 12px;
-  border: 1px solid #dadce0;
-  border-radius: 6px;
-  background: #fff;
-  color: #202124;
-  cursor: pointer;
+.banner a:focus-visible, button.link:focus-visible { outline: none; border-radius: 4px; box-shadow: var(--el-focus); }
+.muted { color: var(--el-text-2); }
+
+/* A setting (the shared switches): its name and a help line, then the switch at the right. A click anywhere on it flips it. */
+.setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; cursor: pointer; }
+.setting + .setting { border-top: 1px solid var(--el-border); }
+.setting-text { display: grid; gap: 2px; min-width: 0; }
+.setting-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--el-text); }
+.setting-help { color: var(--el-text-2); font-size: 13px; line-height: 1.45; }
+.setting .el-dot { margin-right: -2px; }
+/* Where a half-on suggestion switch is on ("Essays only"). */
+.family-scope {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--el-radius-pill);
+  background: var(--el-accent-soft);
+  color: var(--el-accent);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
 }
-.btn:hover { background: #f1f3f4; }
-.btn:disabled { color: #9aa0a6; cursor: default; background: #fff; }
-.btn.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
-.btn.primary:hover { background: #1765cc; }
-.btn:focus-visible, button.link:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
-  outline: 2px solid #1a73e8;
-  outline-offset: 1px;
-}
-/* A setting with its label above it and the control at full width (the AI provider's key, endpoint and models). */
-.field { display: grid; gap: 4px; margin: 12px 0; }
-.field > input:not([type='checkbox']), .field > select { box-sizing: border-box; width: 100%; padding: 5px 8px; }
-.field > input[readonly] { background: #f1f3f4; color: #5f6368; }
-.field-error { margin: -8px 0 12px; color: #d93025; font-size: 12px; line-height: 16px; }
-/* A model's two prices, side by side under it. */
-.prices { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; margin: -6px 0 16px; padding-left: 12px; border-left: 2px solid #e8eaed; }
-.prices .field { margin: 6px 0; }
-.prices .field > span { font-size: 12px; line-height: 16px; color: #5f6368; }
-.prices .setting-warning { grid-column: 1 / -1; }
-.setting-warning { margin: 4px 0; padding: 6px 10px; border-radius: 6px; background: #fef7e0; border: 1px solid #f9d77e; color: #3c4043; font-size: 12px; line-height: 16px; }
+
+/* This month's spend (SpendMeter): a thin bar filled to its share of the limit, over the words. */
+.spend { display: grid; gap: 6px; margin: 0; color: var(--el-text-2); font-size: 12px; }
+.spend-bar { display: block; height: 4px; overflow: hidden; border-radius: var(--el-radius-pill); background: var(--el-surface-2); }
+.spend-fill { display: block; height: 100%; border-radius: inherit; background: var(--el-accent); }
+.spend-bar[data-full] .spend-fill { background: var(--el-correctness); }
+
+/* Your rules (YourRules): each rule or word, with Remove at the right. */
+.your-rules { list-style: none; margin: 0; padding: 0; }
+.your-rule { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+.your-rule + .your-rule { border-top: 1px solid var(--el-border); }
+.your-rules-empty b { color: var(--el-text); font-weight: 600; }

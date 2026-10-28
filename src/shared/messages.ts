@@ -9,6 +9,7 @@ import type { ReaderChoice } from '../core/review';
 import type { DocNote } from '../core/schema';
 import type { SourcedIssue } from '../core/sources';
 import type { CheckStatus, Dialect, LocatedIssue, Mode, RawIssue } from '../core/types';
+import type { WordLimitCut } from '../core/word-limit';
 
 export interface CheckRequest {
   host: string;
@@ -87,6 +88,27 @@ export interface FollowUpResponse {
   /** Up to 3 when present (1 in Essay); empty when the answer is the message alone. */
   variants?: string[];
 }
+/** Fit a word limit: the selection (at most 5,000 characters), its context and the target, in words. */
+export interface WordLimitRequest {
+  host: string;
+  mode: Mode;
+  text: string;
+  before: string;
+  after: string;
+  /** A whole number of words, from 1 to one under the selection's, by the local counter (core/word-limit.ts). */
+  target: number;
+  /** Find more cuts: the cuts shown so far (at most 36), located in `text`; the answer's cuts overlap none of them. */
+  shown?: Pick<WordLimitCut, 'start' | 'end' | 'original' | 'replacement'>[];
+}
+export interface WordLimitResponse {
+  status: CheckStatus;
+  /** Located in `text`, in the model's order, each saving at least one word by the local count (cleanWordLimit). */
+  cuts?: WordLimitCut[];
+  /** At or under the target and at least 80% of it, by the local count; null when the model's wasn't. */
+  version?: string | null;
+  /** The version changes a number, name, date or quote of `text` (cleanWordLimit); false without one. */
+  versionChangesFacts?: boolean;
+}
 /** From the options page only: the writer's pasted pieces (core/style-profile.ts has the limits). */
 export interface StyleProfileRequest {
   samples: string;
@@ -111,7 +133,7 @@ export interface SynonymsResponse {
 }
 /**
  * How the right-click menu or the shortcut opens the tools popover: with a request it sends at once, or
- * 'custom-prompt' ("Custom instruction…": the menu, with the custom input focused).
+ * 'custom-prompt' ("Ask anything…": the bar, with its box focused).
  */
 export type OpenToolsRequest = ToolRequest | 'custom-prompt';
 export interface IssuesUpdate {
@@ -202,6 +224,7 @@ export interface ProtocolMap {
   rewrite(req: RewriteRequest): RewriteResponse;
   synonyms(req: SynonymsRequest): SynonymsResponse;
   followUp(req: FollowUpRequest): FollowUpResponse;
+  wordLimit(req: WordLimitRequest): WordLimitResponse;
   /** From the options page only (the sender is checked): a style profile described from pieces the writer pasted. */
   buildStyleProfile(req: StyleProfileRequest): StyleProfileResponse;
   /** From the side panel only (the sender is checked): the tone of the followed field's text. */
@@ -255,7 +278,7 @@ export interface ProtocolMap {
   listModels(p: { slot: KeySlot; baseURL: string; key?: string }): ListModelsResponse;
   // panel/popup -> content script (sent with tabId)
   applyFix(p: { fieldId: string; issueId: string }): { ok: boolean };
-  /** A comment-only note's "Rewrite this sentence": opens the tools popover on its sentence (Rewrite). */
+  /** A comment-only note's "Rewrite sentence": opens the tools popover on its sentence (Rewrite). */
   rewriteSentence(p: { fieldId: string; issueId: string }): { opened: boolean };
   dismissIssue(p: { fieldId: string; issueId: string }): void;
   acceptAllErrors(p: { fieldId: string }): { applied: number; failed: number };

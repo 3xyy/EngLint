@@ -21,7 +21,7 @@ const all = Object.entries({ ...schema, ...reviewSchema, ...toolSchema }).filter
 describe('every JSON schema sent to the API', () => {
   it('finds the schemas', () => {
     expect(all.map(([n]) => n).sort()).toEqual(
-      ['CRITIQUE_JSON_SCHEMA', 'DEEP_CHECK_JSON_SCHEMA', 'FOLLOW_UP_JSON_SCHEMA', 'GRADER_JSON_SCHEMA', 'LIVE_CHECK_JSON_SCHEMA', 'READERS_JSON_SCHEMA', 'STYLE_PROFILE_JSON_SCHEMA', 'SYNONYMS_JSON_SCHEMA', 'TONE_JSON_SCHEMA', 'VARIANTS_JSON_SCHEMA', 'VOICE_JSON_SCHEMA'],
+      ['CRITIQUE_JSON_SCHEMA', 'DEEP_CHECK_JSON_SCHEMA', 'FOLLOW_UP_JSON_SCHEMA', 'GRADER_JSON_SCHEMA', 'LIVE_CHECK_JSON_SCHEMA', 'READERS_JSON_SCHEMA', 'STYLE_PROFILE_JSON_SCHEMA', 'SYNONYMS_JSON_SCHEMA', 'TONE_JSON_SCHEMA', 'VARIANTS_JSON_SCHEMA', 'VOICE_JSON_SCHEMA', 'WORD_LIMIT_JSON_SCHEMA'],
     );
   });
   it.each(all)('%s uses no keyword the API rejects', (name, value) => {

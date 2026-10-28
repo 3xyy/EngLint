@@ -1,94 +1,13 @@
-.panel { padding: 12px; }
-.panel header { display: flex; align-items: center; }
-.panel h1 { margin: 0; font-size: 16px; }
-.panel h2 { margin: 16px 0 6px; font-size: 12px; font-weight: 500; color: #5f6368; text-transform: uppercase; letter-spacing: 0.04em; }
+@import '../../shared/ui/tokens.css';
+@import '../../shared/ui/word-limit.css';
+
+/* The panel follows the system scheme, as every page does (ui.css): every colour here is a token, which switches. */
+
+.panel { display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; padding: 14px 16px 12px; }
 .panel ul { list-style: none; margin: 0; padding: 0; }
-.panel .actions { display: flex; gap: 8px; margin: 12px 0; }
-.panel footer { margin-top: 16px; padding-top: 8px; border-top: 1px solid #f1f3f4; }
-.notice { margin: 0 0 12px; padding: 8px 12px; border-radius: 6px; background: #fce8e6; color: #3c4043; }
-
-/* The sections as tabs (App.tsx TabBar). */
-.tabs { display: flex; gap: 4px; margin: 8px 0 0; border-bottom: 1px solid #dadce0; }
-.tab {
-  margin-bottom: -1px;
-  padding: 6px 12px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: #5f6368;
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-}
-.tab:hover { color: #202124; }
-.tab[aria-selected='true'] { color: #1a73e8; border-bottom-color: #1a73e8; }
-.tab:focus-visible { outline: 2px solid #1a73e8; outline-offset: -2px; }
-.pane { padding-top: 4px; }
-.pane[hidden] { display: none; }
-
-/* Same look as the in-page card (src/content/overlay/overlay.css). */
-.item {
-  margin-bottom: 8px;
-  padding: 0;
-  overflow: hidden;
-  background: #fff;
-  border: 1px solid #dadce0;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3);
-  cursor: pointer;
-}
-.item:hover { border-color: #bdc1c6; box-shadow: 0 1px 4px rgba(60, 64, 67, 0.4); }
-.item-fixrow { display: flex; }
-.item-fix { display: block; flex: 0 1 auto; max-width: 100%; box-sizing: border-box; padding: 10px 14px; border: 0; border-radius: 0; text-align: left; background: #e6f4ea; color: #188038; font: inherit; font-weight: 700; cursor: pointer; }
-.item-fix.delete { color: #d93025; background: #fce8e6; }
-.item-fix:hover, .item-fix:focus-visible { background: #ceead6; }
-.item-rewrite { display: block; flex: 0 1 auto; max-width: 100%; box-sizing: border-box; padding: 10px 14px; border: 0; border-radius: 0; text-align: left; background: #e8f0fe; color: #1a73e8; font: inherit; font-weight: 700; cursor: pointer; }
-.item-rewrite:hover, .item-rewrite:focus-visible { background: #d2e3fc; }
-.item-bar { display: flex; align-items: stretch; border-top: 1px solid #dadce0; }
-.item-goto { display: flex; align-items: center; justify-content: center; padding: 8px 12px; border: 0; border-right: 1px solid #dadce0; border-radius: 0; background: none; color: #80868b; cursor: pointer; }
-.item-goto:hover, .item-goto:focus-visible { background: #f1f3f4; color: #202124; }
-.item-dismiss { flex: 1 1 0; padding: 8px 14px; border: 0; border-radius: 0; background: none; color: #5f6368; font: inherit; cursor: pointer; }
-.item-dismiss:hover, .item-dismiss:focus-visible { background: #f1f3f4; color: #202124; }
-.item button:focus-visible { outline: 2px solid #1a73e8; outline-offset: -2px; }
-
-/* Tools (Tools.tsx): text no field holds, with Copy on each result. Diffs as in the popover. */
-.tools { margin-top: 4px; }
-.tools-input, .tools-custom {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid #dadce0;
-  border-radius: 6px;
-  background: #fff;
-  color: #202124;
-}
-.tools-input { resize: vertical; }
-.tools-note { margin: 4px 0 0; }
-.tools-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-.tools-custom { margin-bottom: 8px; }
-.tools-loading, .tools-weakness, .tools-tells, .tools-facts, .tools-error { margin: 8px 0; }
-.tools-loading { color: #5f6368; }
-.tools-error { color: #3c4043; }
-.tools-results { margin: 8px 0; }
-.tools-result {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 6px;
-  padding: 8px 10px;
-  border: 1px solid #dadce0;
-  border-radius: 8px;
-  background: #fff;
-}
-.tools-text { flex: 1 1 auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.tools-copy { flex: 0 0 auto; padding: 2px 10px; }
-.tools-word { font-weight: 600; }
-.tools-nuance { color: #5f6368; font-size: 13px; }
-.tools del, .chat del, .review del { color: #d93025; text-decoration: line-through; }
-.tools ins, .chat ins, .review ins { color: #188038; background: #e6f4ea; text-decoration: none; border-radius: 2px; }
-/* the joint has no space: a gap (overlay.css explains) */
-.tools del + ins, .chat del + ins, .review del + ins { margin-inline-start: 0.25em; }
+.panel .muted { color: var(--el-text-2); }
+.panel button.link, .panel a { color: var(--el-accent); }
+.panel button.link:focus-visible, .panel a:focus-visible { outline: none; border-radius: 4px; box-shadow: var(--el-focus); }
 .sr-only {
   position: absolute;
   width: 1px;
@@ -98,82 +17,259 @@
   white-space: nowrap;
 }
 
+/* Header: the wordmark and the status pill. */
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; margin: 0 0 12px; }
+.panel-mark { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+
+/* A status problem (StatusBanner) and a one-off note (an apply that failed, a frame gone). */
+.panel .banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border);
+  border-left: 3px solid var(--el-generic);
+  border-radius: var(--el-radius-control);
+  background: var(--el-surface);
+  color: var(--el-text);
+  font-size: 13px;
+}
+.notice { margin: 0 0 12px; padding: 8px 12px; border-radius: var(--el-radius-control); background: var(--el-del-bg); color: var(--el-text); font-size: 13px; }
+
+/* The sections as tabs: a segmented control across the panel. */
+.panel-tabs { display: flex; margin: 0 0 14px; }
+.pane { padding-bottom: 16px; }
+.pane[hidden] { display: none; }
+
+/* Fields the panel draws itself, on the tokens (the shared controls style their own). */
+.panel textarea, .panel select, .panel input[type='text'] {
+  box-sizing: border-box;
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-control);
+  background: var(--el-bg);
+  color: var(--el-text);
+  font: 14px/1.45 var(--el-font);
+}
+.panel textarea::placeholder, .panel input::placeholder { color: var(--el-text-3); }
+.panel textarea:focus-visible, .panel select:focus-visible, .panel input[type='text']:focus-visible {
+  outline: none;
+  border-color: var(--el-accent);
+  box-shadow: var(--el-focus);
+}
+.panel textarea:disabled, .panel input[type='text']:disabled { background: var(--el-surface); color: var(--el-text-3); }
+.panel select { height: 32px; padding: 0 8px; font-size: 13px; }
+
+/* A count beside a heading or in a button. */
+.panel-count {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--el-radius-pill);
+  background: var(--el-surface-2);
+  color: var(--el-text-2);
+  font: 600 12px/1 var(--el-font);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Issues: the toolbar, then a section per family, each issue a compact card. */
+.panel-toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+.panel-toolbar .panel-count { background: var(--el-del-bg); color: var(--el-text); }
+.group { margin-top: 18px; }
+.panel-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--el-text-3);
+  font: 600 12px/1 var(--el-font);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.panel .items { display: grid; gap: 8px; }
+.item {
+  display: grid;
+  gap: 6px;
+  padding: 12px 10px 8px 14px;
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-card);
+  background: var(--el-bg);
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+.item:hover { background: var(--el-surface); }
+.item-type { padding-right: 4px; }
+.item-foot { display: flex; align-items: flex-end; gap: 8px; }
+.item-foot-note { flex-wrap: wrap; }
+.item-why { flex: 1 1 auto; min-width: 0; margin: 0 0 5px; color: var(--el-text-2); font-size: 13px; line-height: 1.45; }
+.item-foot-note .item-why { flex-basis: 100%; margin: 0; padding-right: 4px; }
+.item-actions { display: flex; flex: 1 0 auto; align-items: center; justify-content: flex-end; gap: 2px; }
+.item-why + .item-actions { flex-grow: 0; }
+.item-foot-note .item-why + .item-actions { flex-grow: 1; }
+.item-accept { color: var(--el-accent); }
+.item-accept:hover:not(:disabled) { background: var(--el-accent-soft); color: var(--el-accent); }
+.item-rewrite { margin-right: auto; }
+.item-rewrite > svg { color: var(--el-accent); }
+
+.panel-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 36px 0 20px; }
+.panel-empty svg { box-sizing: content-box; padding: 10px; border-radius: 50%; background: var(--el-surface-2); color: var(--el-text-3); }
+.panel-empty p { margin: 0; color: var(--el-text-2); }
+.panel-hint { margin: 36px 0 20px; text-align: center; }
+
+/* Suggestion switches and "Your rules" (shared with the options page), folded away. */
+.panel-settings { margin-top: 24px; border: 1px solid var(--el-border); border-radius: var(--el-radius-card); background: var(--el-bg); }
+.panel-settings summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--el-radius-card);
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+.panel-settings summary::-webkit-details-marker { display: none; }
+.panel-settings summary::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  margin: 0 2px 2px 1px;
+  border-right: 1.5px solid var(--el-text-3);
+  border-bottom: 1.5px solid var(--el-text-3);
+  transform: rotate(-45deg);
+  transition: transform 120ms ease-out;
+}
+.panel-settings[open] summary::before { margin: 0 2px 4px 1px; transform: rotate(45deg); }
+.panel-settings summary:focus-visible { outline: none; box-shadow: var(--el-focus); }
+.panel-settings-body { padding: 4px 14px 12px; border-top: 1px solid var(--el-border); font-size: 13px; }
+.panel-settings h3 { margin: 16px 0 6px; color: var(--el-text-3); font: 600 12px/1 var(--el-font); letter-spacing: 0.05em; text-transform: uppercase; }
+.panel-settings .setting { padding: 8px 0; }
+.panel-settings .setting-help { font-size: 12px; }
+.panel-settings .family-toggles + .setting { border-top: 1px solid var(--el-border); }
+.panel-settings .your-rule { padding: 6px 0; }
+
+/* Footer: this month's spend, a thin bar over its text. */
+.panel-foot { display: grid; gap: 6px; margin-top: auto; padding-top: 8px; color: var(--el-text-3); font-size: 12px; }
+.panel-spend { display: block; height: 4px; overflow: hidden; border-radius: var(--el-radius-pill); background: var(--el-surface-2); }
+.panel-spend-fill { display: block; height: 100%; border-radius: inherit; background: var(--el-accent); }
+.panel-spend[data-full] .panel-spend-fill { background: var(--el-correctness); }
+
+/* Tools (Tools.tsx): text no field holds, the bar's actions, and Copy on each result. Diffs as in the popover. */
+.tools-input, .tools-custom { display: block; width: 100%; padding: 8px 10px; }
+.tools-input { min-height: 76px; resize: vertical; }
+.tools-custom { height: 36px; margin-bottom: 12px; }
+.tools-note { margin: 6px 0 0; font-size: 12px; }
+.tools-actions { display: grid; gap: 8px; margin: 12px 0; }
+.tools-lead, .tools-group-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.tools-group { display: grid; grid-template-columns: 60px minmax(0, 1fr); align-items: start; gap: 8px; }
+.tools-group-label { padding-top: 7px; color: var(--el-text-3); font: 500 12px/14px var(--el-font); }
+.tools-loading, .tools-weakness, .tools-tells, .tools-facts, .tools-error { margin: 10px 0; font-size: 13px; }
+.tools-loading, .tools-weakness, .tools-tells { color: var(--el-text-2); }
+.tools-facts { color: var(--el-text); }
+.tools-error { padding: 8px 12px; border-radius: var(--el-radius-control); background: var(--el-del-bg); color: var(--el-text); }
+.tools-results { display: grid; gap: 8px; margin: 10px 0; }
+.tools-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  border: 1px solid var(--el-border);
+  border-radius: 10px;
+  background: var(--el-bg);
+}
+.tools-text { flex: 1 1 auto; margin: 0; padding-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tools-copy { flex: 0 0 auto; }
+/* Fit a word limit (word-limit.css): a card under the actions. */
+.tools .el-wl-pick, .tools .el-wl { margin: 10px 0; padding: 12px; border: 1px solid var(--el-border); border-radius: var(--el-radius-card); }
+.tools-word { font-weight: 600; }
+.tools-nuance { color: var(--el-text-2); font-size: 13px; }
+.tools del, .chat del, .review del { color: var(--el-del); text-decoration: line-through; }
+.tools ins, .chat ins, .review ins { color: var(--el-ins); background: var(--el-ins-bg); text-decoration: none; border-radius: 3px; }
+/* the joint has no space: a gap (overlay.css explains) */
+.tools del + ins, .chat del + ins, .review del + ins { margin-inline-start: 0.25em; }
+
 /* Chat (Chat.tsx): the conversation, each answer's edits with Apply or Copy, and the box kept in view. */
-.chat { margin-top: 8px; }
 .chat-head { display: flex; justify-content: flex-end; margin-bottom: 8px; }
-.chat-log { display: flex; flex-direction: column; gap: 8px; }
-.chat-empty { margin: 4px 0; }
-.chat-msg { max-width: 92%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px; }
-.chat-user { align-self: flex-end; background: #e8f0fe; color: #202124; }
-.chat-answer { align-self: flex-start; border: 1px solid #dadce0; background: #fff; color: #202124; }
+.chat-log { display: flex; flex-direction: column; gap: 10px; }
+.chat-empty { margin: 24px 0; text-align: center; }
+.chat-msg { max-width: 92%; box-sizing: border-box; padding: 9px 12px; border-radius: 14px; }
+.chat-user { align-self: flex-end; border-bottom-right-radius: 4px; background: var(--el-accent-soft); color: var(--el-text); }
+.chat-answer { align-self: flex-start; border-bottom-left-radius: 4px; background: var(--el-surface); color: var(--el-text); }
 .chat-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.chat-text:empty::after { content: '…'; color: #5f6368; } /* the answer hasn't started */
-.chat .chat-edits { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; }
+.chat-text:empty::after { content: '…'; color: var(--el-text-3); } /* the answer hasn't started */
+.chat .chat-edits { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; }
 .chat-edit {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid #dadce0;
-  border-radius: 8px;
-  background: #f8f9fa;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid var(--el-border);
+  border-radius: 10px;
+  background: var(--el-bg);
 }
-.chat-edit-text { flex: 1 1 auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.chat-apply { flex: 0 0 auto; padding: 2px 10px; }
+.chat-edit-text { flex: 1 1 auto; margin: 0; padding-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-apply { flex: 0 0 auto; }
 .chat-edit-too-big { flex-direction: column; gap: 4px; } /* the original, then why there is no replacement */
 .chat-edit-note { margin: 0; font-size: 13px; }
-.chat-status { margin: 6px 0 0; color: #3c4043; font-size: 13px; }
-.chat-note { margin: 8px 0 0; color: #3c4043; }
-.chat-elsewhere { margin: 8px 0 0; }
-.chat-input { position: sticky; bottom: 0; padding: 8px 0; background: #fff; }
-
-/* Suggestion switches and "Your rules" (shared with the options page). */
-.panel-settings { margin-top: 16px; }
-.panel-settings summary { cursor: pointer; font-weight: 500; }
-.panel-settings h3 { margin: 12px 0 4px; font-size: 13px; font-weight: 500; }
-.your-rules { list-style: none; margin: 0; padding: 0; }
+.chat-status { margin: 6px 0 0; color: var(--el-text-2); font-size: 13px; }
+.chat-note { margin: 10px 0 0; padding: 8px 12px; border-radius: var(--el-radius-control); background: var(--el-del-bg); color: var(--el-text); font-size: 13px; }
+.chat-elsewhere { margin: 8px 0 0; font-size: 13px; }
+.chat-input { position: sticky; bottom: 0; padding: 10px 0; background: var(--el-bg); }
 
 /* Review (Review.tsx): one card per review, the Overview first. */
-.review { margin-top: 8px; }
-.review-cut { margin: 0 0 8px; }
-.review-card { margin: 0 0 16px; padding: 12px; border: 1px solid #dadce0; border-radius: 8px; background: #fff; }
-.review-card h2 { margin: 0 0 8px; font-size: 14px; font-weight: 500; }
-.review-card h3 { margin: 12px 0 4px; font-size: 13px; font-weight: 500; }
-.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 0; }
+.review-cut { margin: 0 0 10px; font-size: 13px; }
+.review-card { margin: 0 0 12px; padding: 14px; border: 1px solid var(--el-border); border-radius: var(--el-radius-card); background: var(--el-bg); }
+.review-card h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+.review-card h3 { margin: 14px 0 6px; font-size: 13px; font-weight: 600; }
+.review-card > .muted { margin: 8px 0 0; font-size: 13px; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin: 0; }
 .stat { min-width: 0; }
-.stat dt { color: #5f6368; font-size: 12px; }
-.stat dd { margin: 0; color: #202124; font-size: 14px; overflow-wrap: anywhere; }
-.tone-line { margin: 8px 0 0; font-size: 13px; color: #5f6368; }
-.review-field { display: flex; flex-direction: column; gap: 2px; margin: 0 0 8px; font-size: 12px; color: #5f6368; }
-.review-field select, .review-input, .review-rubric { box-sizing: border-box; width: 100%; font: inherit; font-size: 13px; }
-.review-input { margin: 0 0 8px; }
-.review-rubric { display: block; margin: 0 0 8px; resize: vertical; }
-.review-result h3 { margin: 12px 0 4px; }
-.review-result ul { margin: 0; padding-left: 18px; }
+.stat dt { color: var(--el-text-3); font-size: 12px; }
+.stat dd { margin: 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tone-line { margin: 12px 0 0; color: var(--el-text-2); font-size: 13px; }
+.review-field { display: grid; gap: 4px; margin: 0 0 10px; color: var(--el-text-3); font-size: 12px; }
+.review-field select, .review-input, .review-rubric { width: 100%; }
+.review-input { height: 32px; margin: 0 0 10px; padding: 0 8px; font-size: 13px; }
+.review-rubric { display: block; margin: 0 0 10px; padding: 8px 10px; font-size: 13px; resize: vertical; }
+.review-card > .notice { margin: 10px 0 0; }
+.review-result { margin-top: 12px; }
+.review-result ul { margin: 0; padding-left: 18px; list-style: disc; }
+.review-result li::marker { color: var(--el-text-3); }
 .review-result p { margin: 0 0 4px; overflow-wrap: anywhere; }
 .quote { font-style: italic; }
-.quote-link { padding: 0; border: 0; background: none; color: #1a73e8; font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.quote-link { padding: 0; border: 0; background: none; color: var(--el-accent); font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .quote-link:hover { text-decoration: underline; }
-.rating { margin-left: 6px; font-size: 12px; font-weight: 500; color: #5f6368; }
-.rating-strong { color: #137333; }
-.rating-needs_work { color: #b06000; }
-.criterion { margin: 0 0 8px; }
-.grade { margin: 12px 0 0; font-weight: 500; }
+.quote-link:focus-visible { outline: none; border-radius: 4px; box-shadow: var(--el-focus); }
+.rating {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: var(--el-radius-pill);
+  background: var(--el-surface-2);
+  color: var(--el-text-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+.rating-strong { background: var(--el-ins-bg); color: var(--el-ins); }
+.rating-needs_work { background: var(--el-del-bg); color: var(--el-text); }
+.criterion { margin: 0 0 10px; }
+.grade { margin: 12px 0 0; font-weight: 600; }
 
 .review-result .deep-issues, .review-result .deep-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.deep-issue, .deep-notes > li {
-  padding: 8px 10px;
-  border: 1px solid #dadce0;
-  border-radius: 8px;
-  background: #fff;
-}
+.deep-issue, .deep-notes > li { padding: 10px 12px; border: 1px solid var(--el-border); border-radius: 10px; background: var(--el-bg); }
 .deep-issue p, .deep-notes p { margin: 0 0 4px; overflow-wrap: anywhere; }
-.deep-kind { color: #5f6368; font-size: 12px; text-transform: capitalize; }
-.deep-actions { display: flex; gap: 6px; margin-top: 4px; }
+.deep-kind { color: var(--el-text-3); font-size: 12px; text-transform: capitalize; }
+.deep-actions { display: flex; gap: 6px; margin-top: 6px; }
 .review-result .sources { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.source { padding: 8px; border: 1px solid #e8eaed; border-radius: 6px; }
-.source a { color: #1a73e8; font-weight: 500; overflow-wrap: anywhere; }
-.source-title { font-weight: 500; overflow-wrap: anywhere; }
+.source { padding: 10px 12px; border: 1px solid var(--el-border); border-radius: 10px; }
+.source a { font-weight: 600; overflow-wrap: anywhere; }
+.source-title { font-weight: 600; overflow-wrap: anywhere; }
 .source p { margin: 4px 0 0; overflow-wrap: anywhere; }
-.citation { color: #3c4043; font-size: 12px; user-select: text; }
-.source .tools-copy { margin-top: 4px; }
+.citation { color: var(--el-text-2); font-size: 12px; user-select: text; }
+.source .tools-copy { margin-top: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .item, .panel-settings summary::before { transition: none; }
+}

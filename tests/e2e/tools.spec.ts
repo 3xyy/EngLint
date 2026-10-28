@@ -1,11 +1,20 @@
 import type { BrowserContext, Locator, Page, Worker } from '@playwright/test';
 import { clarityOn, expect, test } from './fixtures';
-import { HAIKU, isCritique, isFollowUp, isSynonyms, isVoice, SONNET, toolsResponder, userText } from './mock-anthropic';
+import { fittedVersion, HAIKU, isCritique, isFollowUp, isSynonyms, isVoice, isWordLimit, SONNET, toolsResponder, userText } from './mock-anthropic';
 
 // Evaluated inside the extension's service worker, where `chrome` exists.
 declare const chrome: any;
 
-const button = (page: Page) => page.locator('.englint-select-btn');
+const bar = (page: Page) => page.locator('.englint-bar');
+/** A button on the selection bar, by its words. */
+const barButton = (page: Page, name: string) => bar(page).getByRole('button', { name, exact: true });
+/** The bar's buttons, left to right. */
+const barLabels = (page: Page) => bar(page).locator('[data-bar-item]').allTextContents();
+/** Opens `menu` (Shorten, Tone or More) on the bar and picks `item` from it. */
+async function pickFromBar(page: Page, menu: string, item: string) {
+  await barButton(page, menu).click();
+  await bar(page).getByRole('menuitem', { name: item, exact: true }).click();
+}
 
 /** Types into the textarea (focusing it), then selects [start, end) the way a drag would leave it. */
 async function textareaWith(page: Page, pagesURL: string, text: string): Promise<void> {
@@ -17,96 +26,160 @@ async function textareaWith(page: Page, pagesURL: string, text: string): Promise
 const selectInTextarea = (page: Page, start: number, end: number) =>
   page.locator('#ta').evaluate((el: HTMLTextAreaElement, [s, e]) => el.setSelectionRange(s!, e!), [start, end]);
 
-/** Where the textarea's text ends at `chars` characters on its first line, from the page's own metrics. */
-async function firstLineEnd(page: Page, chars: number): Promise<{ right: number; centerY: number }> {
-  return page.locator('#ta').evaluate((el, chars) => {
-    const cs = getComputedStyle(el);
-    const ctx = document.createElement('canvas').getContext('2d')!;
-    ctx.font = cs.font;
-    const box = el.getBoundingClientRect();
-    const left = box.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
-    const top = box.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
-    return { right: left + ctx.measureText('x'.repeat(chars)).width, centerY: top + parseFloat(cs.lineHeight) / 2 };
-  }, chars);
+/** Where [from, to) of the textarea's first line is drawn, from the page's own metrics. */
+async function firstLineSpan(page: Page, text: string, from: number, to: number): Promise<{ left: number; right: number; top: number; bottom: number }> {
+  return page.locator('#ta').evaluate(
+    (el, [text, from, to]) => {
+      const cs = getComputedStyle(el);
+      const ctx = document.createElement('canvas').getContext('2d')!;
+      ctx.font = cs.font;
+      const box = el.getBoundingClientRect();
+      const left = box.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
+      const top = box.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
+      return { left: left + ctx.measureText(text.slice(0, from)).width, right: left + ctx.measureText(text.slice(0, to)).width, top, bottom: top + parseFloat(cs.lineHeight) };
+    },
+    [text, from, to] as const,
+  );
+}
+/** Room above the fields, so the bar has space above a selection on their first line. */
+const roomAbove = (page: Page) => page.evaluate(() => (document.body.style.paddingTop = '120px'));
+const BAR_GAP = 6;
+/** The bar's box once its enter animation (a scale) has finished. */
+async function barBox(page: Page) {
+  await bar(page).evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+  return (await bar(page).boundingBox())!;
 }
 
-test('selecting text in a textarea shows the button after the selection', async ({ page, pagesURL }) => {
+test('selecting text in a textarea shows the bar just above the selection: Improve, Shorten ▾, Tone ▾, My voice, More ▾', async ({ page, pagesURL }) => {
   await textareaWith(page, pagesURL, 'I has a cat');
-  await expect(button(page)).toHaveCount(0);
+  await roomAbove(page);
+  await expect(bar(page)).toHaveCount(0);
   await selectInTextarea(page, 2, 11);
-  await expect(button(page)).toBeVisible({ timeout: 300 });
+  await expect(bar(page)).toBeVisible({ timeout: 300 });
+  await expect(bar(page)).toHaveAttribute('role', 'toolbar');
+  await expect(bar(page)).toHaveAttribute('aria-label', 'EngLint');
+  expect(await barLabels(page)).toEqual(['Improve', 'Shorten', 'Tone', 'My voice', 'More']);
 
-  const want = await firstLineEnd(page, 11);
-  const box = (await button(page).boundingBox())!;
-  expect(Math.abs(box.x - want.right)).toBeLessThanOrEqual(12);
-  expect(Math.abs(box.y + box.height / 2 - want.centerY)).toBeLessThanOrEqual(8);
-  expect(box.width).toBe(26);
-  await expect(button(page)).toHaveAttribute('aria-label', 'EngLint: rewrite or find synonyms');
+  const want = await firstLineSpan(page, 'I has a cat', 2, 11);
+  const box = await barBox(page);
+  expect(box.height).toBe(36);
+  expect(Math.abs(box.x - want.left)).toBeLessThanOrEqual(12);
+  expect(Math.abs(box.y + box.height + BAR_GAP - want.top)).toBeLessThanOrEqual(8);
+  // One row: every button on the same line, left to right.
+  const tops = await bar(page).locator('[data-bar-item]').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
+  expect(new Set(tops).size).toBe(1);
 });
 
-test('collapsing the selection hides the button', async ({ page, pagesURL }) => {
+test('a single word gets Synonyms on the bar itself; a field on the page\'s first line gets the bar below the selection', async ({ page, pagesURL }) => {
+  await textareaWith(page, pagesURL, 'I have a big cat');
+  await page.evaluate(() => (document.documentElement.style.marginTop = '-30px')); // the field's first line near the top
+  await selectInTextarea(page, 9, 12); // "big"
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
+  expect(await barLabels(page)).toEqual(['Improve', 'Shorten', 'Tone', 'My voice', 'Synonyms', 'More']);
+  const want = await firstLineSpan(page, 'I have a big cat', 9, 12);
+  const box = await barBox(page);
+  expect(want.top - BAR_GAP - box.height).toBeLessThan(8); // no room above
+  expect(Math.abs(box.y - (want.bottom + BAR_GAP))).toBeLessThanOrEqual(8);
+});
+
+test('Tone ▾ opens Formal, Confident, Friendly and Casual; Shorten ▾ has Shorter and "Fit a word limit…"; More ▾ has Expand, Synonyms and "Ask anything…"', async ({ page, pagesURL }) => {
   await textareaWith(page, pagesURL, 'I has a cat');
   await selectInTextarea(page, 2, 11);
-  await expect(button(page)).toBeVisible();
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
+  await barButton(page, 'Tone').click();
+  await expect(bar(page).getByRole('menuitem')).toHaveText(['Formal', 'Confident', 'Friendly', 'Casual']);
+  await expect(barButton(page, 'Tone')).toHaveAttribute('aria-expanded', 'true');
+  await barButton(page, 'Shorten').click();
+  await expect(bar(page).getByRole('menuitem')).toHaveText(['Shorter', 'Fit a word limit…']);
+  await expect(bar(page).getByRole('menuitem', { name: 'Fit a word limit…' })).toBeEnabled();
+  await barButton(page, 'More').click();
+  await expect(bar(page).getByRole('menuitem')).toHaveText(['Expand', 'Synonyms', 'Ask anything…']);
+  // The field kept its focus and selection all along.
+  expect(await page.locator('#ta').evaluate((el: HTMLTextAreaElement) => [document.activeElement === el, el.selectionStart, el.selectionEnd])).toEqual([true, 2, 11]);
+});
+
+test('collapsing the selection hides the bar', async ({ page, pagesURL }) => {
+  await textareaWith(page, pagesURL, 'I has a cat');
+  await selectInTextarea(page, 2, 11);
+  await expect(bar(page)).toBeVisible();
   await selectInTextarea(page, 4, 4);
-  await expect(button(page)).toHaveCount(0, { timeout: 1000 });
+  await expect(bar(page)).toHaveCount(0, { timeout: 1000 });
 });
 
-test('typing over the selection hides the button', async ({ page, pagesURL }) => {
+test('typing over the selection hides the bar', async ({ page, pagesURL }) => {
   await textareaWith(page, pagesURL, 'I has a cat');
   await selectInTextarea(page, 2, 11);
-  await expect(button(page)).toBeVisible();
+  await expect(bar(page)).toBeVisible();
   await page.keyboard.type('x');
-  await expect(button(page)).toHaveCount(0, { timeout: 1000 });
+  await expect(bar(page)).toHaveCount(0, { timeout: 1000 });
 });
 
-test('Esc hides the button and it stays hidden until the selection changes', async ({ page, pagesURL }) => {
+test('Esc hides the bar and it stays hidden until the selection changes', async ({ page, pagesURL }) => {
   await textareaWith(page, pagesURL, 'I has a cat');
   await selectInTextarea(page, 2, 11);
-  await expect(button(page)).toBeVisible();
+  await expect(bar(page)).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(button(page)).toHaveCount(0);
+  await expect(bar(page)).toHaveCount(0);
   await page.waitForTimeout(400); // the Esc keyup must not bring it back
-  await expect(button(page)).toHaveCount(0);
+  await expect(bar(page)).toHaveCount(0);
   await selectInTextarea(page, 2, 5);
-  await expect(button(page)).toBeVisible({ timeout: 1000 });
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
 });
 
-test('selecting page text that is not editable shows no button, and leaves the field button behind', async ({ page, pagesURL }) => {
+test('selecting page text that is not editable shows no bar, and leaves the field bar behind', async ({ page, pagesURL }) => {
   await textareaWith(page, pagesURL, 'I has a cat');
   await selectInTextarea(page, 2, 11);
-  await expect(button(page)).toBeVisible();
+  await expect(bar(page)).toBeVisible();
   await page.locator('#far').click({ clickCount: 3 }); // a real selection: focus leaves the textarea
   expect(await page.evaluate(() => document.getSelection()!.toString())).toContain('Nothing to see here');
   await page.waitForTimeout(500);
-  await expect(button(page)).toHaveCount(0);
+  await expect(bar(page)).toHaveCount(0);
 });
 
-test('scrolling the page hides the button', async ({ page, pagesURL }) => {
+test('scrolling the page hides the bar', async ({ page, pagesURL }) => {
   await textareaWith(page, pagesURL, 'I has a cat');
   await page.evaluate(() => (document.body.style.minHeight = '3000px'));
   await selectInTextarea(page, 2, 11);
-  await expect(button(page)).toBeVisible();
+  await expect(bar(page)).toBeVisible();
   await page.mouse.wheel(0, 200);
-  await expect(button(page)).toHaveCount(0, { timeout: 1000 });
+  await expect(bar(page)).toHaveCount(0, { timeout: 1000 });
 });
 
-test('pressing the button keeps the field selection; the popover it opens takes focus', async ({ page, pagesURL }) => {
+test('pressing Improve keeps the field selection; the popover it opens takes focus', async ({ page, pagesURL, mock }) => {
+  mock.respond(toolsResponder({ variants: ['have a cat', 'own a cat', 'have one cat'] }));
   await textareaWith(page, pagesURL, 'I has a cat');
   await selectInTextarea(page, 2, 11);
-  await button(page).click();
+  await barButton(page, 'Improve').click();
   await expect(page.locator('.englint-tools')).toBeVisible();
+  await expect(bar(page)).toHaveCount(0); // the popover takes the bar's place
   const kept = await page.locator('#ta').evaluate((el: HTMLTextAreaElement) => ({
     start: el.selectionStart,
     end: el.selectionEnd,
     focused: document.activeElement === el,
   }));
   expect(kept).toEqual({ start: 2, end: 11, focused: false });
-  await expect(page.locator('.englint-tools button').first()).toBeFocused();
+  await expect(page.locator('.englint-tools').getByRole('button', { name: 'Use version 1' })).toBeFocused();
 });
 
-test('a contenteditable selection across a <b> shows the button', async ({ page, pagesURL }) => {
+test('a selection inside a word ("roble" in "problems") is the whole word: the request and the apply both use "problems"', async ({ page, pagesURL, mock }) => {
+  mock.respond(toolsResponder({ variants: ['issues', 'troubles', 'worries'] }));
+  await textareaWith(page, pagesURL, 'Our problems are big.');
+  await selectInTextarea(page, 5, 10); // "roble"
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
+  expect(await barLabels(page)).toContain('Synonyms'); // one word
+  await barButton(page, 'Improve').click();
+  await expect(page.locator('.englint-tools').getByRole('button', { name: /^Use version \d$/ })).toHaveCount(3);
+  const user = userText(mock.requests.filter((r) => r.model === SONNET).at(-1));
+  expect(user).toContain('<selection>\n"problems"\n</selection>');
+  expect(user).toContain('<before>\n"Our "\n</before>');
+  await page.locator('.englint-tools').getByRole('button', { name: 'Use version 1' }).click();
+  await expect.poll(() => page.locator('#ta').inputValue()).toBe('Our issues are big.');
+  expect(await page.locator('#ta').evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd])).toEqual([4, 10]);
+});
+
+test('a contenteditable selection across a <b> shows the bar above it', async ({ page, pagesURL }) => {
   await page.goto(`${pagesURL}/contenteditable.html`);
+  await roomAbove(page);
   const editor = page.locator('#ce');
   await editor.click();
   await editor.evaluate((el) => {
@@ -118,21 +191,21 @@ test('a contenteditable selection across a <b> shows the button', async ({ page,
     document.getSelection()!.removeAllRanges();
     document.getSelection()!.addRange(range);
   });
-  await expect(button(page)).toBeVisible({ timeout: 1000 });
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
   const want = await page.evaluate(() => {
-    const b = document.querySelector('#ce b')!.firstChild!;
+    const p = document.querySelector('#ce p')!;
     const range = document.createRange();
-    range.setStart(b, 0);
-    range.setEnd(b, 5);
+    range.setStart(p.firstChild!, 2);
+    range.setEnd(document.querySelector('#ce b')!.firstChild!, 5);
     const r = range.getBoundingClientRect();
-    return { right: r.right, centerY: r.top + r.height / 2 };
+    return { left: r.left, top: r.top };
   });
-  const box = (await button(page).boundingBox())!;
-  expect(Math.abs(box.x - want.right)).toBeLessThanOrEqual(12);
-  expect(Math.abs(box.y + box.height / 2 - want.centerY)).toBeLessThanOrEqual(8);
+  const box = await barBox(page);
+  expect(Math.abs(box.x - want.left)).toBeLessThanOrEqual(12);
+  expect(Math.abs(box.y + box.height + BAR_GAP - want.top)).toBeLessThanOrEqual(8);
 });
 
-test('fake Docs: a bridge selection shows the button at the last rect', async ({ page, pagesURL }) => {
+test('fake Docs: a bridge selection shows the bar above the selection', async ({ page, pagesURL }) => {
   await page.goto(`${pagesURL}/document/d/fake/edit.html`);
   await expect(page.locator('.kix-appview-editor')).toBeVisible();
   // A click on the page focuses the text-event iframe, as in Docs.
@@ -144,7 +217,7 @@ test('fake Docs: a bridge selection shows the button at the last rect', async ({
     fake.selection = { start, end: start + 'has a cat'.length };
     document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   });
-  await expect(button(page)).toBeVisible({ timeout: 3000 });
+  await expect(bar(page)).toBeVisible({ timeout: 3000 });
 
   const want = await page.evaluate(() => {
     for (const div of Array.from(document.querySelectorAll('.text-layer div'))) {
@@ -155,19 +228,20 @@ test('fake Docs: a bridge selection shows the button at the last rect', async ({
       range.setStart(node, at);
       range.setEnd(node, at + 'has a cat'.length);
       const r = range.getBoundingClientRect();
-      return { right: r.right, centerY: r.top + r.height / 2 };
+      return { left: r.left, top: r.top, bottom: r.bottom };
     }
     return null;
   });
-  const box = (await button(page).boundingBox())!;
-  expect(Math.abs(box.x - want!.right)).toBeLessThanOrEqual(12);
-  expect(Math.abs(box.y + box.height / 2 - want!.centerY)).toBeLessThanOrEqual(8);
+  const box = await barBox(page);
+  expect(Math.abs(box.x - want!.left)).toBeLessThanOrEqual(12);
+  const above = Math.abs(box.y + box.height + BAR_GAP - want!.top) <= 8;
+  const below = Math.abs(box.y - (want!.bottom + BAR_GAP)) <= 8; // a first line too near the top
+  expect(above || below).toBe(true);
 });
 
 // ---- the tools popover ----
 
 const popover = (page: Page) => page.locator('.englint-tools');
-const menuItem = (page: Page, name: string) => popover(page).getByRole('button', { name, exact: true });
 const versionRows = (page: Page) => popover(page).getByRole('button', { name: /^Use version \d$/ });
 const options = (page: Page) => popover(page).locator('.englint-tools-option');
 
@@ -251,13 +325,11 @@ const CONTENTEDITABLE: FieldKit = {
     }),
 };
 
-/** Fills the field, selects [start, end), and opens the popover from the button. */
-async function openPopover(page: Page, pagesURL: string, kit: FieldKit, text: string, start: number, end: number) {
+/** Fills the field, selects [start, end), and waits for the selection bar. */
+async function openBar(page: Page, pagesURL: string, kit: FieldKit, text: string, start: number, end: number) {
   await kit.fill(page, pagesURL, text);
   await kit.select(page, start, end);
-  await expect(button(page)).toBeVisible({ timeout: 1000 });
-  await button(page).click();
-  await expect(popover(page)).toBeVisible();
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
 }
 
 const sonnetRequests = (mock: { requests: any[] }) => mock.requests.filter((r) => r.model === SONNET);
@@ -295,33 +367,41 @@ const recordFlash = (page: Page) =>
 const flashBox = (page: Page) => page.evaluate(() => (window as any).__flash as DOMRect | null);
 
 for (const kit of [TEXTAREA, CONTENTEDITABLE]) {
-  test(`${kit.name}: the button opens the menu, 320 px wide, in place of the button`, async ({ page, pagesURL, mock }) => {
+  test(`${kit.name}: a pick on the bar opens the results, 380 px wide, in place of the bar, with a header naming the action`, async ({ page, pagesURL, mock }) => {
     mock.respond(toolsResponder({ variants: VARIANTS }));
-    await openPopover(page, pagesURL, kit, 'I has a cat', 2, 11);
-    for (const name of ['Rewrite', 'Shorter', 'Clearer', 'More formal', 'More confident', 'Friendlier', 'More casual', 'Simpler', 'Expand', 'Sound like me', 'Synonyms']) await expect(menuItem(page, name)).toBeVisible();
-    await expect(popover(page).getByPlaceholder('Or tell EngLint what to do…')).toBeVisible();
-    expect(await popover(page).evaluate((el: HTMLElement) => el.offsetWidth)).toBe(320); // layout width: the enter animation scales
-    await expect(button(page)).toHaveCount(0);
-    await expect(menuItem(page, 'Rewrite')).toBeFocused(); // the popover takes focus
+    await openBar(page, pagesURL, kit, 'I has a cat', 2, 11);
+    await pickFromBar(page, 'Tone', 'Formal');
+    await expect(popover(page)).toBeVisible();
+    await expect(bar(page)).toHaveCount(0);
+    await expect(popover(page).locator('.englint-tools-title')).toHaveText('Tone · Formal');
+    await expect(versionRows(page)).toHaveCount(3);
+    expect(await popover(page).evaluate((el: HTMLElement) => el.offsetWidth)).toBe(380); // layout width: the enter animation scales
+    await expect(versionRows(page).first()).toBeFocused(); // the popover takes focus
+    await popover(page).getByRole('button', { name: 'Close' }).click();
+    await expect(popover(page)).toHaveCount(0);
+    await expect.poll(() => kit.state(page)).toEqual({ start: 2, end: 11, focused: true }); // back in the field
   });
 
-  test(`${kit.name}: Rewrite shows 3 versions as word diffs; one applies, and undo restores the original`, async ({
+  test(`${kit.name}: Improve shows 3 versions as word diffs, each with Copy; one applies, and undo restores the original`, async ({
     page,
     pagesURL,
     mock,
   }) => {
     mock.respond(toolsResponder({ variants: VARIANTS }));
-    await openPopover(page, pagesURL, kit, 'I has a cat', 2, 11);
-    await menuItem(page, 'Rewrite').click();
+    await openBar(page, pagesURL, kit, 'I has a cat', 2, 11);
+    await barButton(page, 'Improve').click();
     await expect(versionRows(page)).toHaveCount(3);
+    await expect(popover(page).locator('.englint-tools-title')).toHaveText('Improve');
+    await expect(popover(page).getByRole('button', { name: /^Copy version \d$/ })).toHaveCount(3);
     const second = versionRows(page).nth(1);
     await expect(second).toHaveAttribute('aria-label', 'Use version 2');
     await expect(second.locator('del')).toHaveText('has');
     await expect(second.locator('ins')).toHaveText('own');
-    expect(await second.locator('del').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(217, 48, 37)');
+    // The suggestion card's diff colours (tokens --el-del, --el-ins, --el-ins-bg).
+    expect(await second.locator('del').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(194, 65, 75)');
     expect(await second.locator('ins').evaluate((el) => [getComputedStyle(el).color, getComputedStyle(el).backgroundColor])).toEqual([
-      'rgb(24, 128, 56)',
-      'rgb(230, 244, 234)',
+      'rgb(21, 128, 61)',
+      'rgb(233, 248, 238)',
     ]);
     // "has" then "own" with no space at the joint: a visible gap keeps them apart (I1, live finding L-diff).
     const joint = await diffJoint(second);
@@ -342,13 +422,113 @@ for (const kit of [TEXTAREA, CONTENTEDITABLE]) {
   });
 }
 
-test('the custom box sends the instruction outside the <selection> data', async ({ page, pagesURL, mock }) => {
+// Fit a word limit: 14 words, cut to a target. The model's cuts are located and counted on the client.
+const LIMIT_TEXT = 'In order to win the final, we really practiced every single day after school.';
+const LIMIT_REPLY = {
+  cuts: [
+    { original: 'In order to', replacement: 'To', why: 'a wordy opening' },
+    { original: 'really', replacement: '', why: 'a filler word' },
+    { original: 'every single day', replacement: 'daily', why: 'says it in one word' },
+    { original: 'not in the text', replacement: '', why: 'dropped: nowhere in the selection' },
+  ],
+  version: 'To win the final, we practiced daily after school.',
+};
+
+for (const kit of [TEXTAREA, CONTENTEDITABLE]) {
+  test(`${kit.name}: Fit a word limit… shows the target picker, finds cuts, and Apply selected replaces the selection once; undo restores it`, async ({
+    page,
+    pagesURL,
+    mock,
+  }) => {
+    mock.respond(toolsResponder({ wordLimit: LIMIT_REPLY }));
+    await openBar(page, pagesURL, kit, LIMIT_TEXT, 0, LIMIT_TEXT.length);
+    await pickFromBar(page, 'Shorten', 'Fit a word limit…');
+    await expect(popover(page).locator('.englint-tools-title')).toHaveText('Fit a word limit');
+    await expect(popover(page).locator('.el-wl-count')).toHaveText('14 words selected');
+    const target = popover(page).getByLabel('Target');
+    await expect(target).toHaveValue('10');
+    await expect(target).toBeFocused();
+    expect(sonnetRequests(mock)).toHaveLength(0); // nothing before Find cuts
+    await target.fill('11');
+    await popover(page).getByRole('button', { name: 'Find cuts' }).click();
+
+    const boxes = popover(page).getByRole('checkbox');
+    await expect(boxes).toHaveCount(3); // the cut found nowhere is dropped
+    expect(sonnetRequests(mock).filter(isWordLimit)).toHaveLength(1);
+    expect(sonnetRequests(mock)[0].stream).toBe(true); // the answer starts at once (a worker's fetch must not wait 30 s)
+    expect(userText(sonnetRequests(mock)[0])).toContain('The selection has 14 words. Bring it to at most 11 words');
+    await expect(popover(page).locator('.el-wl-head')).toHaveText('14 → 11 words');
+    // Picked in order until 11: "In order to" (12), then "really" (11).
+    expect(await boxes.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).checked))).toEqual([true, true, false]);
+    const counter = popover(page).locator('.el-wl-counter');
+    await expect(counter).toHaveText('Selected cuts: 11 words (at the limit)');
+    expect(await counter.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(21, 128, 61)'); // green: --el-ins
+    await expect(popover(page).locator('.el-wl-saves')).toHaveText(['−2 words', '−1 word', '−2 words']);
+    await boxes.nth(1).click(); // unpick "really"
+    await expect(counter).toHaveText('Selected cuts: 12 words (1 to go)');
+    await boxes.nth(2).click();
+    await expect(counter).toHaveText('Selected cuts: 10 words (1 under)');
+    await expect(popover(page).getByRole('button', { name: 'Use full version (9 words)' })).toBeVisible();
+
+    await popover(page).getByRole('button', { name: 'Apply selected' }).click();
+    await expect(popover(page)).toHaveCount(0);
+    await expect.poll(() => kit.text(page)).toBe('To win the final, we really practiced daily after school.');
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect.poll(() => kit.text(page)).toBe(LIMIT_TEXT);
+  });
+}
+
+test('Fit a word limit: Use full version applies the version; Find more cuts sends the cuts shown and adds new ones', async ({ page, pagesURL, mock }) => {
+  let round = 0;
+  mock.respond(
+    toolsResponder({
+      wordLimit: () =>
+        ++round === 1
+          ? { cuts: LIMIT_REPLY.cuts.slice(0, 2), version: LIMIT_REPLY.version }
+          : { cuts: [{ original: 'every single day', replacement: 'daily', why: 'says it in one word' }], version: 'unused' },
+    }),
+  );
+  await openBar(page, pagesURL, TEXTAREA, LIMIT_TEXT, 0, LIMIT_TEXT.length);
+  await pickFromBar(page, 'Shorten', 'Fit a word limit…');
+  await expect(popover(page).locator('.el-wl-chip')).toHaveCount(0); // 14 words: no common limit below it
+  await popover(page).getByRole('button', { name: 'Find cuts' }).click();
+  await expect(popover(page).getByRole('checkbox')).toHaveCount(2);
+  await popover(page).getByRole('button', { name: 'Find more cuts' }).click();
+  await expect(popover(page).getByRole('checkbox')).toHaveCount(3);
+  const second = userText(sonnetRequests(mock).filter(isWordLimit)[1]);
+  expect(second).toContain('<shown_cuts>');
+  expect(second).toContain('In order to');
+  await popover(page).getByRole('button', { name: 'Use full version (9 words)' }).click();
+  await expect.poll(() => TEXTAREA.text(page)).toBe(LIMIT_REPLY.version);
+});
+
+test('Fit a word limit takes a selection over 2,000 characters (up to 5,000), with the common limits below it as chips', async ({ page, pagesURL, mock }) => {
+  const long = Array.from({ length: 450 }, (_, i) => `word${i}`).join(' '); // 3,489 characters
+  mock.respond(toolsResponder({ wordLimit: (body) => ({ cuts: [{ original: 'word1', replacement: '', why: 'one word' }], version: fittedVersion(body) }) }));
+  await textareaWith(page, pagesURL, 'x');
+  await page.locator('#ta').fill(long);
+  await selectInTextarea(page, 0, long.length);
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
+  await pickFromBar(page, 'Shorten', 'Fit a word limit…');
+  await expect(popover(page).locator('.el-wl-count')).toHaveText('450 words selected');
+  await popover(page).locator('.el-wl-chips').getByRole('button', { name: '250' }).click();
+  await popover(page).getByRole('button', { name: 'Find cuts' }).click();
+  await expect(popover(page).getByRole('checkbox')).toHaveCount(1);
+  expect(userText(sonnetRequests(mock)[0])).toContain('Bring it to at most 250 words');
+  await expect(popover(page).getByRole('button', { name: 'Use full version (238 words)' })).toBeVisible(); // counted here
+});
+
+test('"Ask anything…" opens a box in the bar; its instruction is sent outside the <selection> data', async ({ page, pagesURL, mock }) => {
   mock.respond(toolsResponder({ variants: VARIANTS }));
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
-  const box = popover(page).getByPlaceholder('Or tell EngLint what to do…');
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await pickFromBar(page, 'More', 'Ask anything…');
+  const box = bar(page).getByPlaceholder('Tell EngLint what to do…');
+  await expect(box).toBeFocused();
+  expect(sonnetRequests(mock)).toHaveLength(0);
   await box.fill('make it vivid');
   await box.press('Enter');
   await expect(versionRows(page)).toHaveCount(3);
+  await expect(popover(page).locator('.englint-tools-title')).toHaveText('“make it vivid”');
   const user = userText(sonnetRequests(mock).at(-1));
   expect(user).toContain('<selection>\n"has a cat"\n</selection>');
   expect(user).toContain('<instruction>\nmake it vivid\n</instruction>');
@@ -359,10 +539,10 @@ test('the custom box sends the instruction outside the <selection> data', async 
 /** Makes 127.0.0.1 an Essay site (the siteModes setting), before the page loads. */
 const essaySite = (sw: Worker) => sw.evaluate(() => chrome.storage.local.set({ siteModes: { '127.0.0.1': 'essay' } }));
 
-test('Standard page: More confident sends a rewrite with that preset\'s instruction', async ({ page, pagesURL, mock }) => {
+test('Standard page: Tone ▾ Confident sends a rewrite with that preset\'s instruction', async ({ page, pagesURL, mock }) => {
   mock.respond(toolsResponder({ variants: VARIANTS }));
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
-  await menuItem(page, 'More confident').click();
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await pickFromBar(page, 'Tone', 'Confident');
   await expect(versionRows(page)).toHaveCount(3);
   const user = userText(sonnetRequests(mock).at(-1));
   expect(user).toContain(
@@ -370,12 +550,13 @@ test('Standard page: More confident sends a rewrite with that preset\'s instruct
   );
 });
 
-test('Essay page: the selection menu has no Expand', async ({ page, pagesURL, mock, serviceWorker }) => {
+test('Essay page: the bar\'s More ▾ has no Expand', async ({ page, pagesURL, mock, serviceWorker }) => {
   await essaySite(serviceWorker);
   mock.respond(toolsResponder());
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
-  await expect(menuItem(page, 'Simpler')).toBeVisible();
-  await expect(menuItem(page, 'Expand')).toHaveCount(0);
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await barButton(page, 'More').click();
+  await expect(bar(page).getByRole('menuitem')).toHaveText(['Synonyms', 'Ask anything…']);
+  await expect(barButton(page, 'Improve')).toBeVisible();
 });
 
 test('Essay site: the critique comes first, then "Show 3 rewrites" shows the versions', async ({
@@ -388,8 +569,8 @@ test('Essay site: the critique comes first, then "Show 3 rewrites" shows the ver
   mock.respond(
     toolsResponder({ variants: VARIANTS, critique: { weakness: 'The verb does not agree with "I".', light_fix: 'have a cat' } }),
   );
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
-  await menuItem(page, 'Rewrite').click();
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await barButton(page, 'Improve').click();
   await expect(popover(page).locator('.englint-tools-weakness')).toHaveText('The verb does not agree with "I".');
   const fix = popover(page).getByRole('button', { name: 'Use this version' });
   await expect(fix.locator('del')).toHaveText('has');
@@ -413,8 +594,8 @@ test('a follow-up after the versions answers with a message and diffs; one appli
   mock.respond(
     toolsResponder({ variants: VARIANTS, followUp: { message: 'These sound more relaxed.', variants: ['got a cat', 'have got a cat'] } }),
   );
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
-  await menuItem(page, 'Rewrite').click();
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await barButton(page, 'Improve').click();
   await expect(versionRows(page)).toHaveCount(3);
   await followUpBox(page).click();
   await page.keyboard.type('less formal');
@@ -456,8 +637,8 @@ test('Essay site: a follow-up after the critique shows its message and at most o
       followUp: { message: 'The verb is the main problem. One light fix:', variants: ['have a cat', 'own a cat', 'keep a cat'] },
     }),
   );
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
-  await menuItem(page, 'Rewrite').click();
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await barButton(page, 'Improve').click();
   await expect(popover(page).locator('.englint-tools-weakness')).toBeVisible();
   await followUpBox(page).click();
   await page.keyboard.type('rewrite it');
@@ -479,8 +660,8 @@ test('Sound like me sends the other paragraph as the voice sample, shows the pat
   mock,
 }) => {
   mock.respond(toolsResponder({ voice: { tells: ['a staged contrast', 'an inflated claim'], final: 'It was a long trip, and it mattered.' } }));
-  await openPopover(page, pagesURL, TEXTAREA, VOICE_TEXT, VOICE_OTHER.length + 1, VOICE_TEXT.length);
-  await menuItem(page, 'Sound like me').click();
+  await openBar(page, pagesURL, TEXTAREA, VOICE_TEXT, VOICE_OTHER.length + 1, VOICE_TEXT.length);
+  await barButton(page, 'My voice').click();
   await expect(popover(page).locator('.englint-tools-tells')).toHaveText('Generic patterns found: a staged contrast, an inflated claim');
   const row = popover(page).getByRole('button', { name: 'Use this version' });
   await expect(row).toHaveCount(1);
@@ -516,8 +697,8 @@ test('Sound like me: a version that changes a number is never applied; it offers
       followUp: { message: 'Two shorter ones.', variants: ['It took 3 days.', 'It was a long trip.'] },
     }),
   );
-  await openPopover(page, pagesURL, TEXTAREA, VOICE_TEXT, VOICE_OTHER.length + 1, VOICE_TEXT.length);
-  await menuItem(page, 'Sound like me').click();
+  await openBar(page, pagesURL, TEXTAREA, VOICE_TEXT, VOICE_OTHER.length + 1, VOICE_TEXT.length);
+  await barButton(page, 'My voice').click();
   await expect(popover(page).locator('.englint-tools-tells')).toHaveText('No generic patterns found.');
   await expect(popover(page).locator('.englint-tools-note')).toHaveText('Check the facts: this version changes a number, name or quote.');
   await expect(popover(page).getByRole('button', { name: 'Use this version' })).toHaveCount(0);
@@ -555,8 +736,8 @@ test('Essay site: Sound like me critiques first without the voice sample, its li
       voice: { tells: ['a staged contrast'], final: 'It was a long trip, and it mattered.' },
     }),
   );
-  await openPopover(page, pagesURL, TEXTAREA, VOICE_TEXT, VOICE_OTHER.length + 1, VOICE_TEXT.length);
-  await menuItem(page, 'Sound like me').click();
+  await openBar(page, pagesURL, TEXTAREA, VOICE_TEXT, VOICE_OTHER.length + 1, VOICE_TEXT.length);
+  await barButton(page, 'My voice').click();
   await expect(popover(page).locator('.englint-tools-weakness')).toHaveText('The contrast sounds staged.');
   await expect(popover(page).getByRole('button', { name: 'Use this version' })).toHaveCount(0);
   await expect(popover(page).getByRole('button', { name: 'Copy this version' })).toBeVisible();
@@ -575,8 +756,8 @@ test('Essay site: Sound like me critiques first without the voice sample, its li
 
 test('Synonyms: 6 options with nuance notes; one replaces only the word', async ({ page, pagesURL, mock }) => {
   mock.respond(toolsResponder({ options: SYNONYMS }));
-  await openPopover(page, pagesURL, TEXTAREA, 'I have a big cat', 9, 12);
-  await menuItem(page, 'Synonyms').click();
+  await openBar(page, pagesURL, TEXTAREA, 'I have a big cat', 9, 12);
+  await barButton(page, 'Synonyms').click();
   await expect(options(page)).toHaveCount(6);
   await expect(options(page).nth(1).locator('.englint-tools-nuance')).toHaveText('much bigger than usual');
   const asked = mock.requests.filter((r) => r.model === HAIKU && isSynonyms(r));
@@ -588,42 +769,62 @@ test('Synonyms: 6 options with nuance notes; one replaces only the word', async 
   await expect(popover(page)).toHaveCount(0);
 });
 
-test('keyboard: arrows move through the options, Enter applies, Esc closes and focus returns to the field', async ({
+test('keyboard: the focused bar (the shortcut) moves with the arrows and opens its menus; the results move up and down; Enter applies; Esc closes, focus returns to the field and the bar comes back', async ({
   page,
   pagesURL,
   mock,
+  serviceWorker,
 }) => {
   mock.respond(toolsResponder({ variants: VARIANTS }));
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
-  await expect(menuItem(page, 'Rewrite')).toBeFocused();
-  await page.keyboard.press('ArrowDown');
-  await expect(menuItem(page, 'Shorter')).toBeFocused();
-  await page.keyboard.press('ArrowUp');
-  await page.keyboard.press('ArrowUp'); // wraps to the custom box
-  await expect(popover(page).getByPlaceholder('Or tell EngLint what to do…')).toBeFocused();
-  await page.keyboard.press('ArrowDown'); // and back to the top
-  await page.keyboard.press('Enter'); // Rewrite
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  expect(await toFrame(serviceWorker, 'openTools', {})).toEqual({ opened: true }); // the shortcut's request
+  await expect(barButton(page, 'Improve')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(barButton(page, 'Shorten')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowDown'); // opens Tone on its first item
+  await expect(bar(page).getByRole('menuitem', { name: 'Formal' })).toBeFocused();
+  await page.keyboard.press('ArrowUp'); // wraps to the last
+  await expect(bar(page).getByRole('menuitem', { name: 'Casual' })).toBeFocused();
+  await page.keyboard.press('Escape'); // the menu closes; the bar stays
+  await expect(bar(page).getByRole('menuitem')).toHaveCount(0);
+  await expect(barButton(page, 'Tone')).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await expect(barButton(page, 'Improve')).toBeFocused();
+  await page.keyboard.press('ArrowLeft'); // wraps to the end
+  await expect(barButton(page, 'More')).toBeFocused();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Enter'); // Improve
   await expect(versionRows(page)).toHaveCount(3);
   await expect(versionRows(page).first()).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(versionRows(page).nth(1)).toBeFocused();
   await page.keyboard.press('Enter');
   await expect.poll(() => TEXTAREA.text(page)).toBe('I own a cat');
+  await page.waitForTimeout(400);
+  await expect(bar(page)).toHaveCount(0); // not again for the text just applied
 
-  await TEXTAREA.select(page, 2, 2); // the button for the applied text goes first
-  await expect(button(page)).toHaveCount(0, { timeout: 1000 });
   await TEXTAREA.select(page, 2, 5);
-  await expect(button(page)).toBeVisible({ timeout: 1000 });
-  await button(page).click();
-  await expect(menuItem(page, 'Rewrite')).toBeFocused();
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
+  expect(await toFrame(serviceWorker, 'openTools', {})).toEqual({ opened: true });
+  await expect(barButton(page, 'Improve')).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(popover(page)).toHaveCount(0);
   await expect.poll(() => TEXTAREA.state(page)).toEqual({ start: 2, end: 5, focused: true });
+  // Closed with nothing applied: the bar is back beside the same selection (taking no focus), to try another action.
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
+  await expect(barButton(page, 'Improve')).not.toBeFocused();
+  await page.keyboard.press('Escape'); // Esc on that bar hides it, and its keyup doesn't bring it back
+  await expect(bar(page)).toHaveCount(0);
+  await page.waitForTimeout(400);
+  await expect(bar(page)).toHaveCount(0);
 });
 
 test('a click outside closes the popover and leaves focus where the click put it', async ({ page, pagesURL, mock }) => {
-  mock.respond(toolsResponder());
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  mock.respond(toolsResponder({ variants: VARIANTS }));
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await barButton(page, 'Improve').click();
+  await expect(versionRows(page)).toHaveCount(3);
   // Another input, clear of the popover.
   await page.evaluate(() => {
     const other = document.createElement('input');
@@ -644,13 +845,13 @@ test('scrolling the page closes the popover', async ({ page, pagesURL, mock }) =
   await page.locator('#ta').click();
   await page.keyboard.type('I has a cat');
   await selectInTextarea(page, 2, 11);
-  await button(page).click();
+  await barButton(page, 'Improve').click();
   await expect(popover(page)).toBeVisible();
   await page.mouse.wheel(0, 200);
   await expect(popover(page)).toHaveCount(0, { timeout: 1000 });
 });
 
-test('a scroll elsewhere on the page keeps the button', async ({ page, pagesURL }) => {
+test('a scroll elsewhere on the page keeps the bar', async ({ page, pagesURL }) => {
   await textareaWith(page, pagesURL, 'I has a cat');
   await page.evaluate(() => {
     const box = document.createElement('div');
@@ -660,23 +861,25 @@ test('a scroll elsewhere on the page keeps the button', async ({ page, pagesURL 
     document.body.append(box);
   });
   await selectInTextarea(page, 2, 11);
-  await expect(button(page)).toBeVisible();
+  await expect(bar(page)).toBeVisible();
   await page.locator('#side').evaluate((el) => el.scrollBy(0, 300));
   await page.waitForTimeout(300);
-  await expect(button(page)).toBeVisible();
+  await expect(bar(page)).toBeVisible();
 });
 
-test('while the popover is open, a new selection in the field shows no button beside it', async ({ page, pagesURL, mock }) => {
-  mock.respond(toolsResponder());
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+test('while the popover is open, a new selection in the field shows no bar beside it', async ({ page, pagesURL, mock }) => {
+  mock.respond(toolsResponder({ variants: VARIANTS }));
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await barButton(page, 'Improve').click();
+  await expect(versionRows(page)).toHaveCount(3);
   await page.locator('#ta').evaluate((el: HTMLTextAreaElement) => {
     el.focus(); // no click: that would close the popover
     el.setSelectionRange(0, 5);
   });
-  await page.keyboard.press('Shift+ArrowRight'); // a selection event the button follows
+  await page.keyboard.press('Shift+ArrowRight'); // a selection event the bar follows
   await page.waitForTimeout(400);
   await expect(popover(page)).toBeVisible();
-  await expect(button(page)).toHaveCount(0);
+  await expect(bar(page)).toHaveCount(0);
 });
 
 test('the field leaving the page closes the popover, and a late answer brings nothing back', async ({ page, pagesURL, mock }) => {
@@ -690,8 +893,8 @@ test('the field leaving the page closes the popover, and a late answer brings no
     rewriteSent = true;
     return reply(body);
   });
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
-  await menuItem(page, 'Rewrite').click();
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await barButton(page, 'Improve').click();
   await expect(popover(page).getByRole('status')).toHaveText('Rewriting…');
   await page.locator('#ta').evaluate((el) => el.remove());
   await expect(popover(page)).toHaveCount(0);
@@ -705,8 +908,8 @@ test('a busy Claude and an unusable answer get the tools wording, and Retry asks
   const replies: object[] = [{ status: 429 }, { status: 429 }, { variants: [] }, { variants: VARIANTS }]; // the SDK retries a 429 once
   const reply = toolsResponder();
   mock.respond(async (body) => (body.model === SONNET ? replies.shift()! : reply(body)));
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
-  await menuItem(page, 'Rewrite').click();
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await barButton(page, 'Improve').click();
   const error = popover(page).locator('.englint-tools-error');
   await expect(error).toHaveText('Claude is busy right now. Try again in a moment.', { timeout: 10_000 });
   await popover(page).getByRole('button', { name: 'Retry', exact: true }).click();
@@ -715,22 +918,28 @@ test('a busy Claude and an unusable answer get the tools wording, and Retry asks
   await expect(versionRows(page)).toHaveCount(3);
 });
 
-test('a selection over 2,000 characters says so and sends nothing', async ({ page, pagesURL, mock }) => {
+test('a selection over 2,000 characters: the bar has only Fit a word limit on, a line says so, and nothing is sent', async ({ page, pagesURL, mock }) => {
   mock.respond(toolsResponder());
   const long = 'word '.repeat(420).trim(); // 2,099 characters
   await textareaWith(page, pagesURL, 'x');
   await page.locator('#ta').fill(long);
   await selectInTextarea(page, 0, long.length);
-  await expect(button(page)).toBeVisible({ timeout: 1000 });
-  await button(page).click();
-  await expect(popover(page).locator('.englint-tools-error')).toHaveText('Select up to about 2,000 characters.');
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
+  await expect(bar(page).locator('.englint-bar-hint')).toHaveText('Only Fit a word limit works on selections this long.');
+  for (const name of ['Improve', 'Tone', 'My voice', 'More']) await expect(barButton(page, name)).toBeDisabled();
+  await expect(barButton(page, 'Shorten')).toBeEnabled();
+  await barButton(page, 'Improve').click({ force: true }); // off: the click does nothing
+  await barButton(page, 'Shorten').click();
+  await expect(bar(page).getByRole('menuitem', { name: 'Shorter' })).toBeDisabled();
+  await expect(bar(page).getByRole('menuitem', { name: 'Fit a word limit…' })).toBeEnabled();
+  await expect(popover(page)).toHaveCount(0);
   expect(sonnetRequests(mock)).toHaveLength(0);
 });
 
 test('the text changed while the popover was open, so nothing is applied', async ({ page, pagesURL, mock }) => {
   mock.respond(toolsResponder({ variants: VARIANTS }));
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
-  await menuItem(page, 'Rewrite').click();
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await barButton(page, 'Improve').click();
   await expect(versionRows(page)).toHaveCount(3);
   // The user types before the selection (focus moves back into the field; no click, which would close it).
   await page.locator('#ta').evaluate((el: HTMLTextAreaElement) => {
@@ -757,9 +966,8 @@ test('fake Docs: a synonym applies through the paste path', async ({ page, pages
     fake.selection = { start: start + 'sofa'.length, end: start }; // backward, as shift+left leaves it
     document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   });
-  await expect(button(page)).toBeVisible({ timeout: 3000 });
-  await button(page).click();
-  await menuItem(page, 'Synonyms').click();
+  await expect(bar(page)).toBeVisible({ timeout: 3000 });
+  await barButton(page, 'Synonyms').click(); // one word: on the bar itself
   await options(page).first().click();
   await expect.poll(docText).toContain('sleep on the couch.');
   expect(await page.evaluate(() => (window as any).fakeDocs.pastes)).toContain('couch');
@@ -793,7 +1001,7 @@ async function toFrame(sw: Worker, type: string, data: unknown, frameId = 0): Pr
 const launcher = (sw: Worker, call: 'menuClicked' | 'command', ...args: unknown[]) =>
   sw.evaluate(([call, args]) => (globalThis as any).__englintLauncher[call](...args), [call, args] as const);
 
-test('openTools (the menu, simulated) on a field selection opens the popover already loading Rewrite, in place of the button', async ({
+test('openTools (the menu, simulated) on a field selection opens the popover already loading Improve, in place of the bar', async ({
   page,
   pagesURL,
   mock,
@@ -808,11 +1016,12 @@ test('openTools (the menu, simulated) on a field selection opens the popover alr
   });
   await textareaWith(page, pagesURL, 'I has a cat');
   await selectInTextarea(page, 2, 11);
-  await expect(button(page)).toBeVisible({ timeout: 1000 });
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
 
   expect(await toFrame(serviceWorker, 'openTools', { request: REWRITE })).toEqual({ opened: true });
   await expect(popover(page).getByRole('status')).toHaveText('Rewriting…');
-  await expect(button(page)).toHaveCount(0); // one button/popover state
+  await expect(popover(page).locator('.englint-tools-title')).toHaveText('Improve');
+  await expect(bar(page)).toHaveCount(0); // one bar/popover state
   await expect.poll(() => sonnetRequests(mock).length).toBe(1);
   expect(userText(sonnetRequests(mock)[0])).toContain('<selection>\n"has a cat"\n</selection>');
   answer();
@@ -864,30 +1073,27 @@ test('the menu on a switched-off site says EngLint is off there, and sends nothi
   expect(sonnetRequests(mock)).toHaveLength(0);
 });
 
-test("a page script clicking the popover's items (through the e2e build's open root) sends nothing; the user's click does", async ({
+test("a page script clicking the bar's buttons and items (through the e2e build's open root) sends nothing; the user's click does", async ({
   page,
   pagesURL,
   mock,
 }) => {
   mock.respond(toolsResponder({ variants: VARIANTS }));
-  await openPopover(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await openBar(page, pagesURL, TEXTAREA, 'I has a cat', 2, 11);
+  await barButton(page, 'Tone').click(); // its items are in the page now
   await page.evaluate(() => {
     const root = document.querySelector('englint-overlay')!.shadowRoot!;
-    for (const item of root.querySelectorAll<HTMLButtonElement>('.englint-tools-item')) item.click();
-    const box = root.querySelector('input')!;
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(box, 'write a poem');
-    box.dispatchEvent(new Event('input', { bubbles: true }));
-    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    for (const item of root.querySelectorAll<HTMLButtonElement>('.englint-bar button')) item.click();
   });
   await page.waitForTimeout(300);
   expect(sonnetRequests(mock)).toHaveLength(0);
-  await expect(menuItem(page, 'Rewrite')).toBeVisible(); // still the menu
-  await menuItem(page, 'Rewrite').click();
+  await expect(barButton(page, 'Improve')).toBeVisible(); // still the bar
+  await barButton(page, 'Improve').click();
   await expect(versionRows(page)).toHaveCount(3);
   expect(sonnetRequests(mock)).toHaveLength(1);
 });
 
-test('openTools with custom-prompt ("Custom instruction…") opens the menu with the custom box focused', async ({
+test('openTools with custom-prompt ("Ask anything…") opens the bar with its box focused', async ({
   page,
   pagesURL,
   mock,
@@ -897,7 +1103,7 @@ test('openTools with custom-prompt ("Custom instruction…") opens the menu with
   await textareaWith(page, pagesURL, 'I has a cat');
   await selectInTextarea(page, 2, 11);
   expect(await toFrame(serviceWorker, 'openTools', { request: 'custom-prompt' })).toEqual({ opened: true });
-  const box = popover(page).getByPlaceholder('Or tell EngLint what to do…');
+  const box = bar(page).getByPlaceholder('Tell EngLint what to do…');
   await expect(box).toBeFocused();
   expect(sonnetRequests(mock)).toHaveLength(0);
   await page.keyboard.type('make it vivid');
@@ -926,7 +1132,7 @@ test('the shortcut, through the background: a focused field opens the popover; o
   await expect.poll(() => serviceWorker.evaluate(() => !!(globalThis as any).__englintLauncher)).toBe(true);
   await page.waitForTimeout(200); // the focus report reaches the background
   await launcher(serviceWorker, 'command', 'englint-tools', { id: tabId });
-  await expect(menuItem(page, 'Rewrite')).toBeFocused();
+  await expect(barButton(page, 'Improve')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(popover(page)).toHaveCount(0);
 
@@ -958,12 +1164,12 @@ test('the menu, through the background: in a field it opens the popover with the
   await launcher(
     serviceWorker,
     'menuClicked',
-    { menuItemId: 'englint-clearer', editable: false, selectionText: 'Nothing to see here', frameId: 0 },
+    { menuItemId: 'englint-formal', editable: false, selectionText: 'Nothing to see here', frameId: 0 },
     { id: tabId },
   );
   const key = `tools:${tabId}`;
   const stash = ((await serviceWorker.evaluate((k) => chrome.storage.session.get(k), key)) as any)[key];
-  expect(stash).toEqual({ text: 'Nothing to see here', request: { kind: 'preset', presetId: 'clearer' }, at: expect.any(Number) });
+  expect(stash).toEqual({ text: 'Nothing to see here', request: { kind: 'preset', presetId: 'formal' }, at: expect.any(Number) });
 });
 
 /** The fake Docs editor with focus in its text-event iframe and `part` selected through the bridge. */
@@ -1024,9 +1230,9 @@ async function liveWorker(context: BrowserContext, timeout = 10_000): Promise<Wo
   return live!;
 }
 
-/** A selection in a field has settled: the button is up, and its fieldFocused has reached the background. */
+/** A selection in a field has settled: the bar is up, and its fieldFocused has reached the background. */
 async function settled(page: Page, sw: Worker, tabId: number) {
-  await expect(button(page)).toBeVisible({ timeout: 1000 });
+  await expect(bar(page)).toBeVisible({ timeout: 1000 });
   await expect.poll(() => focusFrame(sw, tabId)).toBe(0);
   await page.waitForTimeout(300); // the forced send that settling makes is in, too
 }
@@ -1053,8 +1259,8 @@ test('fake Docs: the shortcut opens the popover on the doc selection once the fi
   const tabId = await tabIdOf(serviceWorker);
   await expect.poll(() => focusFrame(serviceWorker, tabId), { timeout: 10_000 }).toBe(0); // its fieldFocused reached the background
   await launcher(serviceWorker, 'command', 'englint-tools', { id: tabId });
-  await expect(menuItem(page, 'Rewrite')).toBeFocused();
-  await menuItem(page, 'Rewrite').click();
+  await expect(barButton(page, 'Improve')).toBeFocused();
+  await barButton(page, 'Improve').click();
   await expect(versionRows(page)).toHaveCount(3);
   expect(userText(sonnetRequests(mock)[0])).toContain('<selection>\n"has a cat"\n</selection>');
   expect(await stashText(serviceWorker, tabId)).toBe(''); // not the panel
@@ -1102,7 +1308,7 @@ test('fake Docs after a worker restart: a selection settling in the doc refills 
   await expect.poll(() => focusFrame(worker, tabId)).toBe(0);
   expect(Date.now() - selected).toBeLessThan(5000); // the settling send, not the 10 s heartbeat
   await launcher(worker, 'command', 'englint-tools', { id: tabId });
-  await expect(menuItem(page, 'Rewrite')).toBeFocused();
+  await expect(barButton(page, 'Improve')).toBeFocused();
   expect(await stashText(worker, tabId)).toBe('');
 });
 
@@ -1126,7 +1332,7 @@ test('a selection left in a field: its heartbeat refills the map after a worker 
   await expect.poll(() => focusFrame(worker, tabId), { timeout: 15_000 }).toBe(0);
   expect(Date.now() - stopped).toBeGreaterThan(5000); // the 10 s heartbeat, not a send at once
   await launcher(worker, 'command', 'englint-tools', { id: tabId });
-  await expect(menuItem(page, 'Rewrite')).toBeFocused();
+  await expect(barButton(page, 'Improve')).toBeFocused();
 });
 
 test('after a worker restart woken by something else, the prefill from storage.session opens the popover for a focused field', async ({
@@ -1144,7 +1350,7 @@ test('after a worker restart woken by something else, the prefill from storage.s
   await stopWorker(page, serviceWorker);
   const worker = await wakeWorker(context, serviceWorker); // the options page, not the field
   await launcher(worker, 'command', 'englint-tools', { id: tabId });
-  await expect(menuItem(page, 'Rewrite')).toBeFocused();
+  await expect(barButton(page, 'Improve')).toBeFocused();
 });
 
 test('after a worker restart, the shortcut on page text still takes the panel path: a blurred field is not prefilled back', async ({
@@ -1193,7 +1399,7 @@ test('fake Docs in fallback mode: the shortcut takes the panel path (no field to
 });
 
 test('the right-click menu is registered in Chrome: the parent and every child exist', async ({ serviceWorker }) => {
-  const ids = ['englint', 'englint-rewrite', 'englint-shorter', 'englint-clearer', 'englint-formal', 'englint-confident', 'englint-friendlier', 'englint-casual', 'englint-simpler', 'englint-expand', 'englint-separator', 'englint-synonyms', 'englint-custom'];
+  const ids = ['englint', 'englint-rewrite', 'englint-shorten', 'englint-shorter', 'englint-wordLimit', 'englint-tone', 'englint-formal', 'englint-confident', 'englint-friendlier', 'englint-casual', 'englint-voice', 'englint-more', 'englint-expand', 'englint-synonyms', 'englint-custom'];
   // contextMenus has no getter: update() fails with "Cannot find menu item with id …" for an item that isn't there.
   const missing = () =>
     serviceWorker.evaluate(async (ids) => {
@@ -1209,7 +1415,7 @@ test('the right-click menu is registered in Chrome: the parent and every child e
   await expect.poll(missing).toEqual([]); // registered on install
 });
 
-// ---- comment-only clarity notes: "Rewrite this sentence" on the card ----
+// ---- comment-only clarity notes: "Rewrite sentence" on the card ----
 const NOTE = {
   original: 'very unique',
   replacement: null,
@@ -1227,19 +1433,6 @@ const withNote = (extra: object = {}) =>
   });
 const TWO_SENTENCES = 'First, hello there. The plan is very unique. Last one.';
 
-/** A button's width, its label's width and its horizontal padding: a button is sized to its label. */
-const labelFit = (button: Locator) =>
-  button.evaluate((el) => {
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const cs = getComputedStyle(el);
-    return {
-      width: el.getBoundingClientRect().width,
-      label: range.getBoundingClientRect().width,
-      padding: parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight),
-    };
-  });
-
 /** Hovers the note's underline, which opens its card. */
 async function openNoteCard(page: Page, pagesURL: string): Promise<void> {
   await textareaWith(page, pagesURL, TWO_SENTENCES);
@@ -1250,7 +1443,7 @@ async function openNoteCard(page: Page, pagesURL: string): Promise<void> {
   await expect(page.locator('.englint-card')).toBeVisible();
 }
 
-test('a comment-only note: the card has "Rewrite this sentence", Dismiss and Stop suggesting; it opens Rewrite on that sentence and a version replaces it', async ({
+test('a comment-only note: its primary is "Rewrite sentence", Stop suggesting is in its menu; it opens Rewrite on that sentence and a version replaces it', async ({
   page,
   pagesURL,
   mock,
@@ -1260,19 +1453,14 @@ test('a comment-only note: the card has "Rewrite this sentence", Dismiss and Sto
   mock.respond(withNote());
   await openNoteCard(page, pagesURL);
   const card = page.locator('.englint-card');
-  await expect(card.locator('.englint-card-fix')).toHaveCount(0);
-  await expect(card.getByRole('button')).toHaveText(['Rewrite this sentence', 'Dismiss', 'Stop suggesting redundant words']);
-  // Each action is only as wide as its label plus padding, at the card's left.
-  await card.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished))); // measured at full size
-  const box = (await card.boundingBox())!;
-  for (const name of ['Rewrite this sentence', 'Dismiss']) {
-    const action = card.getByRole('button', { name });
-    const fit = await labelFit(action);
-    expect(Math.abs(fit.width - fit.label - fit.padding)).toBeLessThanOrEqual(1);
-    expect(fit.width).toBeLessThan(box.width - 40);
-    expect(Math.abs((await action.boundingBox())!.x - (box.x + 1))).toBeLessThanOrEqual(1); // inside the 1px border
-  }
-  await card.getByRole('button', { name: 'Rewrite this sentence' }).click();
+  await expect(card.locator('.englint-card-accept')).toHaveCount(0);
+  await expect(card.getByRole('button')).toHaveText(['', 'Rewrite sentence', 'Dismiss']); // "⋯" first, an icon
+  const more = card.getByRole('button', { name: 'More actions' });
+  await more.click();
+  await expect(card.getByRole('menuitem')).toHaveText(['Stop suggesting redundant words']); // the primary rewrites
+  await more.click();
+  await expect(card.getByRole('menu')).toHaveCount(0);
+  await card.getByRole('button', { name: 'Rewrite sentence' }).click();
   await expect(card).toHaveCount(0);
   await expect(versionRows(page)).toHaveCount(3);
   const user = userText(sonnetRequests(mock).at(-1));
@@ -1281,7 +1469,21 @@ test('a comment-only note: the card has "Rewrite this sentence", Dismiss and Sto
   await expect(page.locator('#ta')).toHaveValue('First, hello there. The plan stands alone. Last one.');
 });
 
-test('a comment-only note on an Essay site: Rewrite this sentence shows the critique first', async ({
+test('a card with a fix: "Rewrite sentence" in its menu opens Rewrite on that sentence', async ({ page, pagesURL, mock, serviceWorker }) => {
+  await clarityOn(serviceWorker);
+  mock.respond(withNote({ issues: (t: string) => (t.includes('very unique') ? [{ ...NOTE, replacement: 'unique' }] : []) }));
+  await openNoteCard(page, pagesURL);
+  const card = page.locator('.englint-card');
+  await card.getByRole('button', { name: 'More actions' }).click();
+  await expect(card.getByRole('menuitem')).toHaveText(['Stop suggesting redundant words', 'Rewrite sentence']);
+  await expect(page.locator('#ta')).toBeFocused(); // a pointer's open leaves focus in the field
+  await card.getByRole('menuitem', { name: 'Rewrite sentence' }).click();
+  await expect(card).toHaveCount(0);
+  await expect(versionRows(page)).toHaveCount(3);
+  expect(userText(sonnetRequests(mock).at(-1))).toContain('<selection>\n"The plan is very unique."\n</selection>');
+});
+
+test('a comment-only note on an Essay site: Rewrite sentence shows the critique first', async ({
   page,
   pagesURL,
   mock,
@@ -1291,12 +1493,12 @@ test('a comment-only note on an Essay site: Rewrite this sentence shows the crit
   await essaySite(serviceWorker);
   mock.respond(withNote({ critique: { weakness: '"Very unique" is not a degree.', light_fix: 'The plan is unique.' } }));
   await openNoteCard(page, pagesURL);
-  await page.locator('.englint-card').getByRole('button', { name: 'Rewrite this sentence' }).click();
+  await page.locator('.englint-card').getByRole('button', { name: 'Rewrite sentence' }).click();
   await expect(popover(page).locator('.englint-tools-weakness')).toHaveText('"Very unique" is not a degree.');
   expect(sonnetRequests(mock).map(isCritique)).toEqual([true]);
 });
 
-test('Rewrite this sentence on an Essay comment-only long_sentence note sends the note as <focus>', async ({
+test('Rewrite sentence on an Essay comment-only long_sentence note sends the note as <focus>', async ({
   page,
   pagesURL,
   mock,
@@ -1312,7 +1514,7 @@ test('Rewrite this sentence on an Essay comment-only long_sentence note sends th
     }),
   );
   await openNoteCard(page, pagesURL);
-  await page.locator('.englint-card').getByRole('button', { name: 'Rewrite this sentence' }).click();
+  await page.locator('.englint-card').getByRole('button', { name: 'Rewrite sentence' }).click();
   await expect(popover(page).locator('.englint-tools-weakness')).toBeVisible();
   const user = userText(sonnetRequests(mock).at(-1));
   expect(user).toContain('<focus>');

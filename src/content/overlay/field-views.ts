@@ -62,7 +62,7 @@ export const shift = (r: DOMRect, dx: number, dy: number) => new DOMRect(r.x + d
 
 /** Viewport rects in a layer's own coordinates: rect − the layer's origin, both read in the same frame. */
 export function toLocal(items: OverlayItem[], origin: Point): OverlayItem[] {
-  return items.map(({ issue, rects }) => ({ issue, rects: rects.map((r) => shift(r, -origin.x, -origin.y)) }));
+  return items.map((item) => ({ ...item, rects: item.rects.map((r) => shift(r, -origin.x, -origin.y)) }));
 }
 
 /** A layer's own rects back in the viewport, at the layer's origin now. */

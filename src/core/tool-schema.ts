@@ -1,5 +1,9 @@
 import { z } from 'zod';
+import { changesClaims } from './claims';
+import { atWordEdge, cutAtWord } from './context';
+import { countWords } from './doc-stats';
 import type { Mode } from './types';
+import { versionFits, type WordLimitCut } from './word-limit';
 
 /** Rewrite variants stage: the model returns versions; the client parser enforces the count. */
 export const VariantsOutputSchema = z.object({ variants: z.array(z.string()) });
@@ -14,6 +18,11 @@ export const FollowUpOutputSchema = z.object({ message: z.string(), variants: z.
 export const StyleProfileOutputSchema = z.object({ profile: z.string() });
 /** Sound like me: the generic patterns found, and the passage without them, in the writer's voice. */
 export const VoiceOutputSchema = z.object({ tells: z.array(z.string()), final: z.string() });
+/** Fit a word limit: cuts to pick from (an empty replacement deletes), and one full version at or under the target. */
+export const WordLimitOutputSchema = z.object({
+  cuts: z.array(z.object({ original: z.string(), replacement: z.string(), why: z.string() })),
+  version: z.string(),
+});
 
 /** zod's own conversion keeps the shape exact; `$schema` is dropped because the API schema doesn't take it. */
 function toApiSchema(schema: z.ZodType): Record<string, unknown> {
@@ -26,6 +35,7 @@ export const SYNONYMS_JSON_SCHEMA = toApiSchema(SynonymsOutputSchema);
 export const FOLLOW_UP_JSON_SCHEMA = toApiSchema(FollowUpOutputSchema);
 export const STYLE_PROFILE_JSON_SCHEMA = toApiSchema(StyleProfileOutputSchema);
 export const VOICE_JSON_SCHEMA = toApiSchema(VoiceOutputSchema);
+export const WORD_LIMIT_JSON_SCHEMA = toApiSchema(WordLimitOutputSchema);
 
 export const VARIANT_COUNT = 3;
 /** The most characters a style profile keeps. */
@@ -34,6 +44,11 @@ export const MAX_SYNONYMS = 8;
 /** Sound like me: the most tells kept, and the most characters each keeps. */
 export const MAX_TELLS = 5;
 export const MAX_TELL_CHARS = 80;
+/** The longest critique weakness shown: one short sentence (the prompt asks for at most 12 words). */
+export const MAX_WEAKNESS_CHARS = 140;
+/** Fit a word limit: the most cuts one answer keeps, and the most characters a cut's why keeps (it asks for 8 words). */
+export const MAX_CUTS = 12;
+export const MAX_WHY_CHARS = 80;
 
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ');
 
@@ -49,10 +64,20 @@ export function cleanVariants(data: unknown, original: string): string[] | null 
   return kept.length >= VARIANT_COUNT ? kept.slice(0, VARIANT_COUNT) : null;
 }
 
+/** `text` within `max` characters: cut at a word boundary and ended with "…" (mid-word only when no boundary is in reach). */
+function clampAtWord(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const room = max - 1;
+  const cut = cutAtWord(text, room).replace(/[\s,;:.!?—–-]+$/u, '');
+  return `${cut || text.slice(0, room)}…`;
+}
+const clampWeakness = (text: string) => clampAtWord(text, MAX_WEAKNESS_CHARS);
+
+/** The weakness (clamped to MAX_WEAKNESS_CHARS) and the light fix, trimmed; null when either is blank. */
 export function cleanCritique(data: unknown): { weakness: string; lightFix: string } | null {
   const parsed = CritiqueOutputSchema.safeParse(data);
   if (!parsed.success) return null;
-  const weakness = parsed.data.weakness.trim();
+  const weakness = clampWeakness(parsed.data.weakness.trim());
   const lightFix = parsed.data.light_fix.trim();
   return weakness && lightFix ? { weakness, lightFix } : null;
 }
@@ -137,4 +162,52 @@ export function cleanVoice(data: unknown, original: string): { tells: string[]; 
   }
   if (final === original.trim() && tells.length > 0) return null;
   return { tells, final };
+}
+
+const overlaps = (a: { start: number; end: number }, b: { start: number; end: number }) => a.start < b.end && b.start < a.end;
+
+/** Where `original` first occurs in `text` at word edges without overlapping any of `taken`; -1 when nowhere. */
+function freeOccurrence(text: string, original: string, taken: readonly { start: number; end: number }[]): number {
+  for (let at = text.indexOf(original); at !== -1; at = text.indexOf(original, at + 1)) {
+    const span = { start: at, end: at + original.length };
+    if (atWordEdge(text, span.start) && atWordEdge(text, span.end) && !taken.some((t) => overlaps(t, span))) return at;
+  }
+  return -1;
+}
+
+/**
+ * Fit a word limit's answer, made safe to show and apply to `selection`. The cuts keep the model's order (the least
+ * loss of meaning first), at most MAX_CUTS: each is trimmed and found in the selection at its first occurrence at word
+ * edges that overlaps no cut kept before it nor `taken` (the cuts already shown); one found nowhere is dropped. Its
+ * savings are counted locally, and one that saves no word is dropped. One that changes a number, name, date or quote
+ * (the strict claims rule) is flagged `changesFacts`. The version is kept, trimmed, only at or under `target` words and
+ * at least 80% of it, by the local count (versionFits): further under is a summary. `versionChangesFacts`: the version
+ * changes a number, name, date or quote of the selection (the lenient rule: sentence openers may go or change); false
+ * without a version. Null when the answer doesn't match the schema.
+ */
+export function cleanWordLimit(
+  data: unknown,
+  selection: string,
+  target: number,
+  taken: readonly { start: number; end: number }[] = [],
+): { cuts: WordLimitCut[]; version: string | null; versionChangesFacts: boolean } | null {
+  const parsed = WordLimitOutputSchema.safeParse(data);
+  if (!parsed.success) return null;
+  const cuts: WordLimitCut[] = [];
+  for (const c of parsed.data.cuts) {
+    const original = c.original.trim();
+    const replacement = c.replacement.trim();
+    if (original === '') continue;
+    const saves = countWords(original) - countWords(replacement);
+    if (saves < 1) continue;
+    const start = freeOccurrence(selection, original, [...taken, ...cuts]);
+    if (start === -1) continue;
+    const why = clampAtWord(norm(c.why), MAX_WHY_CHARS);
+    cuts.push({ start, end: start + original.length, original, replacement, why, saves, changesFacts: changesClaims(original, replacement) });
+    if (cuts.length === MAX_CUTS) break;
+  }
+  const trimmed = parsed.data.version.trim();
+  const words = countWords(trimmed);
+  const version = words >= 1 && versionFits(words, target) ? trimmed : null;
+  return { cuts, version, versionChangesFacts: version !== null && changesClaims(selection, version, { sentenceStarts: 'lenient' }) };
 }

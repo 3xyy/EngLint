@@ -20,6 +20,11 @@ describe('coordinate conversion', () => {
     ]);
   });
 
+  it('toLocal keeps the rest of the item: the words around the issue, for its card', () => {
+    const context = { before: 'Last week I ', after: ' a cat.' };
+    expect(toLocal([{ issue: issue('has'), rects: [rect(150, 230)], context }], { x: 41, y: 160.5 })[0]!.context).toBe(context);
+  });
+
   it("toViewport undoes toLocal at the same origin, and follows the layer's origin when it moves (a scroll)", () => {
     const rects = [rect(150, 230), rect(12.25, -40)];
     const origin = { x: 41, y: 160.5 };

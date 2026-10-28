@@ -8,6 +8,7 @@ import type { DocNote } from '../../../core/schema';
 import type { LocatedIssue } from '../../../core/types';
 import { Diff } from '../../../content/overlay/ToolsPopover';
 import { sendMessage, type ApplyEditResult } from '../../../shared/messages';
+import { Button } from '../../../shared/ui/controls';
 import { Quote } from '../Quote';
 import { REVIEW_COPY } from './copy';
 import type { Runs } from './runs';
@@ -92,9 +93,9 @@ export function DeepCard({
   return (
     <section className="review-card" aria-label={C.heading}>
       <h2>{C.heading}</h2>
-      <button type="button" className="btn" disabled={!canRun} onClick={() => void run()}>
+      <Button size="sm" className="review-run" disabled={!canRun} onClick={() => void run()}>
         {cost ? C.runWithCost(cost) : C.run}
-      </button>
+      </Button>
       {cost === null && <p className="muted">{REVIEW_COPY.costUnknown}</p>}
       {current?.busy && <p className="muted" role="status">{REVIEW_COPY.checking}</p>}
       <Problem run={current} spend={spend} />
@@ -118,19 +119,18 @@ export function DeepCard({
                       </p>
                       <div className="deep-actions">
                         {issue.replacement !== null && state !== 'too_big' && (
-                          <button
-                            type="button"
-                            className="btn"
+                          <Button
+                            size="sm"
                             aria-label={state === 'applied' ? C.appliedLabel(i + 1) : C.applyLabel(i + 1)}
                             disabled={state !== undefined}
                             onClick={() => void apply(i, issue, current.sent)}
                           >
                             {state === 'applied' ? C.applied : C.apply}
-                          </button>
+                          </Button>
                         )}
-                        <button type="button" className="btn" aria-label={C.goToLabel(i + 1)} disabled={quote === null} onClick={() => quote !== null && void reveal(quote)}>
+                        <Button size="sm" variant="ghost" aria-label={C.goToLabel(i + 1)} disabled={quote === null} onClick={() => quote !== null && void reveal(quote)}>
                           {C.goTo}
-                        </button>
+                        </Button>
                       </div>
                     </li>
                   );

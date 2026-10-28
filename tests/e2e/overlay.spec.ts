@@ -1,7 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 import { clarityOn, expect, test } from './fixtures';
 import { type MockReply, paragraphsOf } from './mock-anthropic';
-import { underlinePainted } from './pixels';
+import { rgba, underlinePainted } from './pixels';
 
 // The underline layer (overlay/anchor.ts, overlay/field-layer.ts): each field's underlines live inside the
 // page's scrolled content, so the browser scrolls them with the text in the same frame. pages/scroll.html
@@ -241,7 +241,7 @@ test('a card with focus in it follows its text when the page scrolls', async ({ 
   await expect(errorUnderline(page)).toBeVisible({ timeout: 3000 });
   await pointAtUnderline(page);
   await expect(card(page)).toBeVisible();
-  await page.locator('.englint-card-fix').focus(); // a keyboard user in the card
+  await page.locator('.englint-card-accept').focus(); // a keyboard user in the card
   await card(page).evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished))); // at rest
   const before = (await card(page).boundingBox())!;
 
@@ -359,7 +359,7 @@ test('hover tints the word and thickens its underline at once; the card follows 
   expect(Math.abs(tint.x - u.x)).toBeLessThan(1);
   expect(Math.abs(tint.width - u.width)).toBeLessThan(1);
   expect(tint.height).toBeGreaterThan(12);
-  expect((await errorUnderline(page).boundingBox())!.height).toBeCloseTo(4, 0);
+  expect((await errorUnderline(page).boundingBox())!.height).toBeCloseTo(3, 0);
 
   // Leaving both: when the card closes, the tint fades out (it stays a moment, marked out), then goes.
   const far = (await page.locator('#far').boundingBox())!;
@@ -370,7 +370,7 @@ test('hover tints the word and thickens its underline at once; the card follows 
   expect('tint-out' in (await firstSeen(page))).toBe(true);
 });
 
-test('underline styles: a 3px red bar, 3px blue dots; hovered, 4px and darker under a multiply tint', async ({
+test('underline styles: a 2px solid line in the Correctness colour, 2px dots in the Clarity colour; hovered, 3px under a multiply tint', async ({
   page,
   pagesURL,
   mock,
@@ -394,16 +394,17 @@ test('underline styles: a 3px red bar, 3px blue dots; hovered, 4px and darker un
       return { height: el.getBoundingClientRect().height, color: cs.backgroundColor, image: cs.backgroundImage, radius: cs.borderTopLeftRadius, blend: cs.mixBlendMode };
     }, pseudo);
 
-  expect(await style('.englint-underline.error', '::before')).toMatchObject({ height: 3, color: 'rgb(229, 72, 58)', radius: '1.5px' });
+  expect(await style('.englint-underline.error', '::before')).toMatchObject({ height: 2, color: 'rgb(229, 72, 77)', radius: '1px' });
   const dots = await style('.englint-underline.suggestion', '::before');
-  expect(dots.height).toBe(3);
-  expect(dots.image).toMatch(/radial-gradient\(.*rgb\(26, 115, 232\)/);
+  expect(dots.height).toBe(2);
+  expect(dots.image).toMatch(/radial-gradient\(.*rgb\(37, 99, 235\)/);
 
   await pointAtUnderline(page);
   await expect(page.locator('.englint-underline.error.active')).toHaveCount(1);
-  await expect.poll(async () => (await style('.englint-underline.error.active', '::before')).height).toBe(4);
-  expect((await style('.englint-underline.error.active', '::before')).color).toBe('rgb(201, 54, 42)');
-  expect(await style('.englint-tint.error')).toMatchObject({ color: 'rgba(229, 72, 58, 0.16)', radius: '3px', blend: 'multiply' });
+  await expect.poll(async () => (await style('.englint-underline.error.active', '::before')).height).toBe(3);
+  expect((await style('.englint-underline.error.active', '::before')).color).toBe('rgb(229, 72, 77)');
+  const tint = await style('.englint-tint.error');
+  expect({ ...tint, color: rgba(tint.color) }).toMatchObject({ color: [229, 72, 77, 0.14], radius: '3px', blend: 'multiply' });
 });
 
 test('a card opened without the pointer keeps its issue active (caret)', async ({ page, pagesURL, mock }) => {
@@ -452,7 +453,7 @@ test('accepting a fix flashes its text green, and the flash is gone after 600 ms
   await pointAtUnderline(page);
   await expect(card(page)).toBeVisible();
 
-  await page.locator('.englint-card-fix').click();
+  await page.locator('.englint-card-accept').click();
   await expect(page.locator('#ta')).toHaveValue('I have a cat.');
   await expect.poll(async () => 'englint-flash' in (await firstSeen(page))).toBe(true);
   const flashedAt = (await firstSeen(page))['englint-flash']!;

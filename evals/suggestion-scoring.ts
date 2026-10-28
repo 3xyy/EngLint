@@ -4,12 +4,14 @@
  */
 import { toggleOf } from '../src/core/kinds';
 import { capFamily } from '../src/core/match';
-import type { FamilyToggle, LocatedIssue, SuggestionFamily } from '../src/core/types';
+import type { FamilyToggle, LocatedIssue, RawIssue, SuggestionFamily } from '../src/core/types';
 
 export interface SuggestLabel {
   original: string;
   family: SuggestionFamily;
   kind?: string;
+  /** The fix a reader would expect (reported by reportLabelledSuggestions, never scored). */
+  replacement?: string;
 }
 export interface AcceptableLabel {
   original: string;
@@ -65,4 +67,68 @@ export function scoreSuggestions(fixture: ScoredFixture, shown: LocatedIssue[]):
     } else out.falsePositive++;
   }
   return out;
+}
+
+export interface LabelledTally {
+  /** `suggest` labels a shown suggestion of the same family overlaps, of `total`. */
+  found: number;
+  total: number;
+  /** Found labels that name a fix and got it, of `fixTotal`. */
+  fixes: number;
+  fixTotal: number;
+  /** Shown suggestions on a label of their family, and on none. */
+  ok: number;
+  fp: number;
+}
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * A report on a fixture that labels suggestions, for reading rather than gating: each shown suggestion OK or FP
+ * (scored as scoreSuggestions scores it), each `suggest` label found or missed, FIX OK or FIX DIFF where a label names
+ * its fix (a shown replacement holding it as a whole word, any case), and HIDDEN for each suggestion in `raw` (the
+ * model's) that isn't shown.
+ */
+export function reportLabelledSuggestions(
+  id: string,
+  fixture: ScoredFixture,
+  shown: LocatedIssue[],
+  raw: RawIssue[],
+): { details: string[]; tally: LabelledTally } {
+  const spanOf = (original: string) => {
+    const start = fixture.text.indexOf(original);
+    return { start, end: start + original.length };
+  };
+  const on = (s: LocatedIssue, l: { start: number; end: number }) => l.start >= 0 && s.start < l.end && l.start < s.end;
+  const labels = [...(fixture.suggest ?? []), ...(fixture.acceptable ?? [])].map((l) => ({ family: l.family, ...spanOf(l.original) }));
+  const suggestions = shown.filter((s) => s.severity === 'suggestion');
+  const details: string[] = [];
+  const tally: LabelledTally = { found: 0, total: fixture.suggest?.length ?? 0, fixes: 0, fixTotal: 0, ok: 0, fp: 0 };
+  for (const s of suggestions) {
+    const family = capFamily(s);
+    const ok = labels.some((l) => l.family === family && on(s, l));
+    tally[ok ? 'ok' : 'fp']++;
+    details.push(`${ok ? 'SUGGEST OK  ' : 'SUGGEST FP  '} [${id}] "${s.original}" -> ${JSON.stringify(s.replacement)} (${family}/${s.kind})`);
+  }
+  for (const l of fixture.suggest ?? []) {
+    const hits = suggestions.filter((s) => capFamily(s) === l.family && on(s, spanOf(l.original)));
+    if (hits.length === 0) {
+      details.push(`SUGGEST MISS [${id}] "${l.original}" (${l.family}${l.kind ? '/' + l.kind : ''})`);
+      continue;
+    }
+    tally.found++;
+    if (l.replacement === undefined) continue;
+    tally.fixTotal++;
+    const want = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(l.replacement)}(?![\\p{L}\\p{N}])`, 'iu');
+    const fixed = hits.some((s) => s.replacement !== null && want.test(s.replacement));
+    if (fixed) tally.fixes++;
+    const got = hits.map((s) => JSON.stringify(s.replacement)).join(' / ');
+    details.push(`${fixed ? 'FIX OK  ' : 'FIX DIFF'} [${id}] "${l.original}": expected ${JSON.stringify(l.replacement)}, shown ${got}`);
+  }
+  const shownKeys = new Set(suggestions.map((s) => JSON.stringify([s.model.original, s.model.replacement])));
+  for (const r of raw) {
+    if (r.severity !== 'suggestion' || shownKeys.has(JSON.stringify([r.original, r.replacement]))) continue;
+    details.push(`HIDDEN   [${id}] "${r.original}" -> ${JSON.stringify(r.replacement)} (${r.category}/${r.kind}) given by the model, not shown`);
+  }
+  return { details, tally };
 }

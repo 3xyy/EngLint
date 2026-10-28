@@ -2,6 +2,7 @@ import { kindInfo } from '../../core/kinds';
 import type { Mode } from '../../core/types';
 import { dictionaryItem, rulesItem } from '../settings';
 import { useSetting } from '../use-setting';
+import { Button } from './controls';
 
 const MODE_WORDS: Record<Mode, string> = { essay: 'in essays', standard: 'in other writing', casual: 'in casual writing' };
 
@@ -14,7 +15,11 @@ export function YourRules() {
   if (!rules || !words) return null;
 
   if (rules.length === 0 && words.length === 0) {
-    return <p className="muted">Nothing here yet. Use “Stop suggesting” or “Add to dictionary” on a card.</p>;
+    return (
+      <p className="muted your-rules-empty">
+        Nothing here yet. Use <b>Stop suggesting</b> or <b>Add “word” to dictionary</b> in a card's ⋯ menu.
+      </p>
+    );
   }
 
   return (
@@ -22,30 +27,28 @@ export function YourRules() {
       {rules.map((r) => {
         const text = `${ruleLabel(r.kind)} ${MODE_WORDS[r.mode]}`;
         return (
-          <li key={`${r.mode}:${r.kind}`} className="row">
+          <li key={`${r.mode}:${r.kind}`} className="your-rule">
             <span>{text}</span>
-            <button
-              type="button"
-              className="btn"
+            <Button
+              size="sm"
               aria-label={`Remove ${text}`}
               onClick={() => void rulesItem.getValue().then((all) => rulesItem.setValue(all.filter((x) => !(x.mode === r.mode && x.kind === r.kind))))}
             >
               Remove
-            </button>
+            </Button>
           </li>
         );
       })}
       {words.map((w) => (
-        <li key={`word:${w}`} className="row">
+        <li key={`word:${w}`} className="your-rule">
           <span>“{w}” in your dictionary</span>
-          <button
-            type="button"
-            className="btn"
+          <Button
+            size="sm"
             aria-label={`Remove “${w}” from your dictionary`}
             onClick={() => void dictionaryItem.getValue().then((all) => dictionaryItem.setValue(all.filter((x) => x !== w)))}
           >
             Remove
-          </button>
+          </Button>
         </li>
       ))}
     </ul>

@@ -1,0 +1,18 @@
+/* The popup (300px): the wordmark, the site and a status pill; the site's switch and mode; the spend; the buttons. */
+.popup { display: grid; gap: 14px; box-sizing: border-box; width: 300px; padding: 14px 16px 16px; }
+.popup-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-height: 24px; }
+.popup-title { min-width: 0; }
+.popup-mark { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; line-height: 22px; }
+.popup-site { margin: 0; color: var(--el-text-2); font-size: 13px; overflow-wrap: anywhere; }
+.popup-head .el-pill { flex: none; margin-top: 1px; }
+.popup .banner { margin: 0; }
+.popup-note { margin: 0; color: var(--el-text-2); }
+
+.popup-card { padding: 0 12px; border: 1px solid var(--el-border); border-radius: var(--el-radius-card); }
+.popup-card .setting { padding: 11px 0; }
+.popup-mode { display: grid; gap: 8px; padding: 11px 0 12px; border-top: 1px solid var(--el-border); }
+.popup-mode-label { color: var(--el-text-2); font-size: 13px; }
+.popup-mode .el-seg { display: flex; }
+
+.popup-actions { display: flex; gap: 8px; }
+.popup-main { flex: 1 1 auto; }

@@ -1,6 +1,6 @@
-// The card's action beside Dismiss: "Stop suggesting {label}" writes a rule for the mode, "Add to dictionary"
-// a word. Each write comes with an undo that removes exactly what it wrote. FieldHost re-filters every field
-// when either list changes, so the underlines go (and come back on Undo) with no new request.
+// The card's setting action, in its "⋯" menu: "Stop suggesting {label}" writes a rule for the mode, "Add “{word}”
+// to dictionary" a word. Each write comes with an undo that removes exactly what it wrote. FieldHost re-filters
+// every field when either list changes, so the underlines go (and come back on Undo) with no new request.
 import { kindInfo } from '../core/kinds';
 import type { LocatedIssue, Mode } from '../core/types';
 import { dictionaryForm } from '../core/typography';
@@ -17,10 +17,10 @@ export interface CardAction {
 const bareWord = (original: string) => original.trim().replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, '');
 
 /**
- * What the card offers beside Dismiss, if anything:
+ * The setting action the card's menu offers, if any:
  * - "Stop suggesting {label}" for a rule-eligible kind (style suggestions and style-preference errors such as
  *   the Oxford comma), in Essay and Standard. Casual has no rules: it shows no suggestions.
- * - "Add to dictionary" for a spelling error on one word, in any mode.
+ * - "Add “{word}” to dictionary" for a spelling error on one word, in any mode.
  */
 export function cardAction(issue: Pick<LocatedIssue, 'original' | 'severity' | 'category' | 'kind'>, mode: Mode): CardAction | null {
   const info = kindInfo(issue.kind);
@@ -54,7 +54,7 @@ function stopSuggesting(mode: Mode, kind: string, label: string): CardAction {
 function addToDictionary(word: string): CardAction {
   const entry = dictionaryForm(word);
   return {
-    label: 'Add to dictionary',
+    label: `Add “${word}” to dictionary`,
     async apply() {
       const added = !(await dictionaryItem.getValue()).includes(entry);
       if (added) await addDictionaryWord(word);

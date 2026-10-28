@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react';
 import type { FamilyToggle, FamilyToggles as Toggles, Mode } from '../../core/types';
 import { peekSuggestionFamilies, suggestionFamiliesByModeItem } from '../settings';
+import { Switch } from './controls';
 
 const ROWS: { key: FamilyToggle; label: string }[] = [
   { key: 'clarity', label: 'Clarity' },
@@ -18,10 +19,10 @@ function scopeOf(essay: boolean, standard: boolean): string | null {
 }
 
 /**
- * The four suggestion switches. A switch is checked when Essay and Standard both have the family on, clear when
- * neither does, and mixed (indeterminate, with a caption naming where it is on) when they differ. A click on a
- * mixed or clear switch turns the family on in both modes, and on a checked one turns it off in both. Casual
- * never gets suggestions, so its toggles stay off.
+ * The four suggestion switches, each after its family's dot. A switch is on when Essay and Standard both have the
+ * family on, off when neither does, and half on (with a caption naming where it is on) when they differ. A click on
+ * a half-on or off switch turns the family on in both modes, and on an on one turns it off in both. Casual never
+ * gets suggestions, so its toggles stay off.
  */
 export function FamilyToggles() {
   const [value, setValue] = useState<Record<Mode, Toggles> | null>(null);
@@ -52,24 +53,23 @@ export function FamilyToggles() {
         const scope = scopeOf(value.essay[key], value.standard[key]);
         const captionId = `${uid}-${key}`;
         return (
-          <label key={key} className="row" style={{ justifyContent: 'flex-start' }}>
-            <input
-              type="checkbox"
+          <label key={key} className="setting">
+            <span className="setting-name">
+              <span className={`el-dot el-fam-${key}`} aria-hidden="true" />
+              {label}
+              {scope && (
+                <span id={captionId} className="family-scope">
+                  {scope}
+                </span>
+              )}
+            </span>
+            <Switch
               aria-label={label}
               aria-describedby={scope ? captionId : undefined}
               checked={on}
-              // The browser clears `indeterminate` on a click, so it is set again on every render.
-              ref={(el) => {
-                if (el) el.indeterminate = scope !== null;
-              }}
+              mixed={scope !== null}
               onChange={() => flip(key, !on)}
             />
-            <span>{label}</span>
-            {scope && (
-              <span id={captionId} className="muted family-scope">
-                {scope}
-              </span>
-            )}
           </label>
         );
       })}

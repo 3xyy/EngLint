@@ -280,6 +280,8 @@ export interface ToolsReplies {
   options?: { text: string; nuance: string }[];
   /** A follow-up in the tools popover (FollowUpOutputSchema). */
   followUp?: { message: string; variants: string[] | null };
+  /** Fit a word limit (core/tool-schema.ts WordLimitOutputSchema); a function gets the request's body. */
+  wordLimit?: { cuts: { original: string; replacement: string; why: string }[]; version: string } | ((body: any) => object);
   /** The live check's issues for a paragraph's text (default: none). */
   issues?: (text: string) => object[];
   /** The Options page's style profile (core/tool-schema.ts StyleProfileOutputSchema). */
@@ -348,6 +350,15 @@ export const isCritique = (body: any) => userText(body).includes('Task: critique
 /** Whether a Sonnet request is Sound like me's variants stage (buildRewriteUser's rw-3 task line). */
 export const isVoice = (body: any) => userText(body).includes('Task: sound like the writer.');
 export const isSynonyms = (body: any) => userText(body).includes('<synonym_request>');
+/** Whether a Sonnet request is Fit a word limit (buildWordLimitUser's task line). */
+export const isWordLimit = (body: any) => userText(body).includes('Task: fit a word limit.');
+/** A stand-in full version for a word-limit request: the selection's first 95% of the target's words. */
+export function fittedVersion(body: any): string {
+  const user = userText(body);
+  const selection: string = JSON.parse(/<selection>\n([\s\S]*?)\n<\/selection>/.exec(user)![1]!);
+  const target = Number(/at most (\d+) words/.exec(user)![1]);
+  return selection.split(/\s+/).slice(0, Math.max(1, Math.round(target * 0.95))).join(' ');
+}
 /** Whether a Sonnet request is a popover follow-up (buildFollowUpUser's task line). */
 export const isFollowUp = (body: any) => userText(body).includes('Task: follow-up.');
 /** Whether a request builds a style profile: its system text names the prompt version sp-1. */
@@ -370,8 +381,8 @@ export function chatMessage(body: any): string {
 }
 
 /**
- * Answers a chat turn with the streamed `chat` reply, and the rest by `body.model`: Sonnet with the follow-up
- * JSON for a follow-up, Sound like me's JSON for its task line, else the rewrite JSON (the critique or the
+ * Answers a chat turn with the streamed `chat` reply, and the rest by `body.model`: Sonnet with the word-limit JSON
+ * for its task line, the follow-up JSON for a follow-up, Sound like me's JSON for its task line, else the rewrite JSON (the critique or the
  * variants, from the task line), Haiku with
  * the synonyms JSON for a synonym request, and otherwise the live check (clean by default).
  */
@@ -400,6 +411,10 @@ export function toolsResponder(replies: ToolsReplies = {}): (body: any) => Promi
       }
       if (isGrader(body)) {
         return replies.grading ?? { criteria: [{ name: 'Clarity', rating: 'solid', evidence: [], raise: 'Say more.' }], grade: null };
+      }
+      if (isWordLimit(body)) {
+        const w = replies.wordLimit;
+        return typeof w === 'function' ? w(body) : (w ?? { cuts: [], version: fittedVersion(body) });
       }
       if (isFollowUp(body)) return replies.followUp ?? { message: 'Here is another way to say it.', variants: ['Another version.'] };
       if (isVoice(body)) return replies.voice ?? { tells: ['a staged contrast'], final: 'It sounds like me now.' };

@@ -1,0 +1,191 @@
+/*
+ * Fit a word limit (WordLimit.tsx): the target picker and the cuts, in the tools popover and the side panel alike.
+ * Colours only from the tokens; each part sets its own font (the overlay's host reset leaves nothing to inherit).
+ */
+/* Their own surface, from the tokens: the popover's own, and a card that reads in either scheme on a page that doesn't follow it yet. */
+.el-wl-pick,
+.el-wl {
+  display: grid;
+  gap: 10px;
+  background: var(--el-bg);
+  color: var(--el-text);
+  font: 14px/1.45 var(--el-font);
+  text-align: left;
+}
+.el-wl-count,
+.el-wl-unit,
+.el-wl-note {
+  color: var(--el-text-2);
+  font-size: 13px;
+}
+.el-wl-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.el-wl-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.el-wl-input {
+  box-sizing: border-box;
+  width: 84px;
+  height: 32px;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-control);
+  background: var(--el-bg);
+  color: var(--el-text);
+  font: 14px/1 var(--el-font);
+}
+.el-wl-input:focus {
+  outline: none;
+  border-color: var(--el-accent);
+  box-shadow: var(--el-focus);
+}
+/* No spin buttons (they ignore the dark scheme): the arrow keys still step the number. */
+.el-wl-input::-webkit-inner-spin-button,
+.el-wl-input::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.el-wl-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.el-wl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.el-wl-chip {
+  box-sizing: border-box;
+  height: 26px;
+  margin: 0;
+  padding: 0 11px;
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-pill);
+  background: var(--el-bg);
+  color: var(--el-text-2);
+  font: 500 12px/1 var(--el-font);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+}
+.el-wl-chip:hover {
+  background: var(--el-surface);
+  color: var(--el-text);
+}
+.el-wl-chip[aria-pressed='true'] {
+  border-color: var(--el-accent);
+  background: var(--el-accent-soft);
+  color: var(--el-accent);
+}
+.el-wl-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--el-focus);
+}
+.el-wl-find {
+  justify-self: start;
+}
+
+/* The cuts: the counts, then a scrolling list of rows, each a checkbox and the change in its context. */
+.el-wl-head {
+  font-size: 15px;
+  font-weight: 600;
+}
+.el-wl-counter {
+  padding: 6px 10px;
+  border-radius: var(--el-radius-control);
+  background: var(--el-surface);
+  color: var(--el-text-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+.el-wl-counter.el-wl-ok {
+  background: var(--el-ins-bg);
+  color: var(--el-ins);
+}
+.el-wl-cuts {
+  max-height: min(320px, 45vh);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--el-border);
+  border-radius: 10px;
+  list-style: none;
+}
+.el-wl-cut + .el-wl-cut {
+  border-top: 1px solid var(--el-border);
+}
+.el-wl-cut-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+.el-wl-cut-row:hover {
+  background: var(--el-surface);
+}
+.el-wl-check {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--el-accent);
+  color-scheme: light dark; /* the native box follows the scheme: no white square on a dark card */
+  cursor: pointer;
+}
+.el-wl-check:focus-visible {
+  outline: 2px solid var(--el-accent);
+  outline-offset: 2px;
+}
+.el-wl-cut-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.el-wl-cut-body .el-diff {
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+/* The diff's token colours, over a page's own del and ins (the panel's are light-only). */
+.el-wl .el-diff del {
+  color: var(--el-del);
+}
+.el-wl .el-diff ins {
+  background: var(--el-ins-bg);
+  color: var(--el-ins);
+}
+.el-wl-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.el-wl-why {
+  color: var(--el-text-2);
+  font-size: 12px;
+}
+.el-wl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* A search for more that failed: its status, under the cuts it kept. */
+.el-wl-note.el-wl-error {
+  color: var(--el-text);
+}
+/* Under the buttons: the full version changes a number, name or quote (over the popover's own paragraph spacing). */
+.el-wl .el-wl-facts {
+  margin: 0;
+  padding: 0;
+  color: var(--el-text);
+  font-size: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .el-wl-chip {
+    transition: none;
+  }
+}

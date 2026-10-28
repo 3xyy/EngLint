@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { allRatingsStrong, quoteHitRate, seededRecall } from '../../evals/review-scoring';
-import { scoreSuggestions, type ScoredFixture } from '../../evals/suggestion-scoring';
+import { reportLabelledSuggestions, scoreSuggestions, type ScoredFixture } from '../../evals/suggestion-scoring';
 import {
   instantCandidates,
   pruneInstant,
@@ -10,7 +10,7 @@ import {
   type RuleTally,
 } from '../../evals/sources-scoring';
 import type { Grading, Rating } from '../../src/core/review-schema';
-import type { LocatedIssue } from '../../src/core/types';
+import type { LocatedIssue, RawIssue } from '../../src/core/types';
 
 const TEXT = 'We met in order to plan the trip. It was very good and the weather held.';
 
@@ -137,6 +137,72 @@ describe('scoreSuggestions', () => {
     expect(r.falsePositive).toBe(1);
     expect(r.perToggle.delivery).toEqual({ correct: 0, flagged: 1 });
     expect(r.perToggle.generic).toEqual({ correct: 0, flagged: 0 });
+  });
+});
+
+describe('reportLabelledSuggestions', () => {
+  const labelled: ScoredFixture = {
+    text: TEXT,
+    suggest: [
+      { original: 'in order to', family: 'clarity', kind: 'wordy_phrase', replacement: 'to' },
+      { original: 'very good', family: 'engagement', kind: 'vague_word' },
+    ],
+    acceptable: [{ original: 'the weather held', family: 'clarity' }],
+  };
+  const model = (o: Partial<RawIssue>): RawIssue => ({
+    original: 'x',
+    replacement: 'y',
+    before: '',
+    category: 'clarity',
+    severity: 'suggestion',
+    kind: 'wordy_phrase',
+    reason: 'r',
+    ...o,
+  });
+
+  it('marks each shown suggestion OK on a label of its family, else FP, and leaves errors out', () => {
+    const ok = shown({ ...at('in order to'), replacement: 'to' });
+    const fp = shown({ ...at('plan the trip'), replacement: 'plan' });
+    const wrongFamily = shown({ ...at('the weather held'), category: 'engagement', kind: 'vague_word' });
+    const err = shown({ ...at('It was'), severity: 'error', category: 'grammar', kind: 'k', replacement: 'Was' });
+    const { details, tally } = reportLabelledSuggestions('f1', labelled, [ok, fp, wrongFamily, err], []);
+    expect(tally).toMatchObject({ ok: 1, fp: 2 });
+    expect(details).toContain('SUGGEST OK   [f1] "in order to" -> "to" (clarity/wordy_phrase)');
+    expect(details).toContain('SUGGEST FP   [f1] "plan the trip" -> "plan" (clarity/wordy_phrase)');
+    expect(details).toContain('SUGGEST FP   [f1] "the weather held" -> null (engagement/vague_word)');
+    expect(details.join('\n')).not.toContain('It was');
+  });
+
+  it('counts a suggest label found when a shown suggestion of its family overlaps it, and reports a MISS otherwise', () => {
+    const otherFamily = shown({ ...at('very good'), replacement: 'good', category: 'clarity', kind: 'wordy_phrase' });
+    const { details, tally } = reportLabelledSuggestions('f1', labelled, [shown({ ...at('order'), replacement: null }), otherFamily], []);
+    expect(tally).toMatchObject({ found: 1, total: 2 });
+    expect(details).toContain('SUGGEST MISS [f1] "very good" (engagement/vague_word)');
+    expect(details.some((d) => d.startsWith('SUGGEST MISS') && d.includes('in order to'))).toBe(false);
+  });
+
+  it('a label that names its fix gets FIX OK when a shown replacement holds it as a whole word, in any case', () => {
+    const report = (replacement: string | null) => reportLabelledSuggestions('f1', labelled, [shown({ ...at('in order to'), replacement })], []);
+    expect(report('To').tally).toMatchObject({ fixes: 1, fixTotal: 1 });
+    expect(report('To').details).toContain('FIX OK   [f1] "in order to": expected "to", shown "To"');
+    expect(report('so as to').tally).toMatchObject({ fixes: 1, fixTotal: 1 });
+    for (const replacement of ['toward', null]) {
+      const r = report(replacement);
+      expect(r.tally, String(replacement)).toMatchObject({ found: 1, fixes: 0, fixTotal: 1 });
+      expect(r.details.some((d) => d.startsWith('FIX DIFF [f1] "in order to": expected "to"')), String(replacement)).toBe(true);
+    }
+    expect(report('to').details.some((d) => d.includes('very good') && d.startsWith('FIX'))).toBe(false); // names no fix
+  });
+
+  it('lists each suggestion the model gave that is not shown as HIDDEN, and never an error', () => {
+    const kept = model({ original: 'in order to', replacement: 'to' });
+    const capped = model({ original: 'very good', replacement: 'valuable', category: 'engagement', kind: 'vague_word' });
+    const error = model({ original: 'It was', replacement: 'Was', severity: 'error', category: 'grammar', kind: 'k' });
+    const shownKept = shown({ ...at('in order to'), replacement: 'to', model: { original: 'in order to', replacement: 'to' } });
+    const { details } = reportLabelledSuggestions('f1', labelled, [shownKept], [kept, capped, error]);
+    expect(details.filter((d) => d.startsWith('HIDDEN'))).toEqual([
+      'HIDDEN   [f1] "very good" -> "valuable" (engagement/vague_word) given by the model, not shown',
+    ]);
   });
 });
 

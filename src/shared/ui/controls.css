@@ -1,0 +1,232 @@
+/*
+ * The shared controls (controls.tsx), for the overlay's shadow roots and the extension pages alike. Colours come
+ * only from the tokens (tokens.css). Each control sets its own font: inside the overlay the host's reset
+ * (all: initial) leaves nothing to inherit.
+ */
+
+.el-btn, .el-icon-btn, .el-switch, .el-seg-item {
+  box-sizing: border-box;
+  margin: 0;
+  font-family: var(--el-font);
+  -webkit-tap-highlight-color: transparent;
+}
+.el-btn:focus-visible, .el-icon-btn:focus-visible, .el-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--el-focus);
+}
+
+/* Buttons. */
+.el-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--el-radius-control);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+}
+.el-btn > svg { flex: none; }
+.el-btn-sm { height: 28px; padding: 0 10px; font-size: 12px; }
+.el-btn-primary { background: var(--el-accent); color: var(--el-on-accent); }
+.el-btn-primary:hover:not(:disabled) { background: var(--el-accent-hover); }
+.el-btn-secondary { background: var(--el-bg); border-color: var(--el-border); color: var(--el-text); }
+.el-btn-secondary:hover:not(:disabled) { background: var(--el-surface); }
+.el-btn-ghost { background: transparent; color: var(--el-text-2); }
+.el-btn-ghost:hover:not(:disabled) { background: var(--el-surface-2); color: var(--el-text); }
+.el-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Icon buttons, with the label as a tooltip on hover and keyboard focus. */
+.el-icon-btn {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--el-radius-control);
+  background: transparent;
+  color: var(--el-text-2);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.el-icon-btn > svg { display: block; }
+.el-icon-btn:hover:not(:disabled) { background: var(--el-surface-2); color: var(--el-text); }
+.el-icon-btn:disabled { opacity: 0.5; cursor: default; }
+.el-icon-btn::after {
+  content: attr(aria-label);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--el-text);
+  color: var(--el-bg);
+  font: 500 12px/16px var(--el-font);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease-out, visibility 0s linear 120ms;
+}
+.el-icon-btn[data-tip='bottom']::after { top: calc(100% + 6px); bottom: auto; }
+.el-icon-btn[data-tip-align='end']::after { left: auto; right: 0; transform: none; }
+.el-icon-btn:hover::after, .el-icon-btn:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 120ms ease-out 400ms, visibility 0s linear 400ms;
+}
+/* A button whose menu is open: the menu is showing, so no tooltip over it. */
+.el-icon-btn[aria-expanded='true']::after { display: none; }
+
+/* Switch: a track with a thumb; on, the track fills with the accent. */
+.el-switch {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 1.5px solid var(--el-text-3);
+  border-radius: var(--el-radius-pill);
+  background: var(--el-surface-2);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+.el-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--el-text-3);
+  transition: transform 120ms ease-out, background-color 120ms ease-out;
+}
+.el-switch[aria-checked='true'] { border-color: var(--el-accent); background: var(--el-accent); }
+.el-switch[aria-checked='true'] .el-switch-thumb { background: var(--el-on-accent); transform: translateX(14px); }
+/* Half on: the thumb mid-track in the accent, on a soft accent track. */
+.el-switch[data-mixed] { border-color: var(--el-accent); background: var(--el-accent-soft); }
+.el-switch[data-mixed] .el-switch-thumb { background: var(--el-accent); transform: translateX(7px); }
+.el-switch:hover:not(:disabled) { border-color: var(--el-text-2); }
+.el-switch[data-mixed]:hover:not(:disabled) { border-color: var(--el-accent-hover); }
+.el-switch[aria-checked='true']:hover:not(:disabled) { border-color: var(--el-accent-hover); background: var(--el-accent-hover); }
+.el-switch:disabled { opacity: 0.5; cursor: default; }
+
+/* Segmented control: the selected option is a raised chip on a sunken track. */
+.el-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--el-radius-control);
+  background: var(--el-surface-2);
+}
+/* Each option as wide as its words; a stretched control shares the extra width out. One weight, so nothing shifts. */
+.el-seg-item {
+  flex: 1 0 auto;
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--el-text-2);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.el-seg-item:hover { color: var(--el-text); }
+.el-seg-item[aria-checked='true'], .el-seg-item[aria-selected='true'] {
+  background: var(--el-bg);
+  color: var(--el-text);
+  box-shadow: 0 0 0 1px var(--el-border), var(--el-shadow-xs);
+}
+/* After the selected look, so a selected segment shows the ring too. */
+.el-seg-item:focus-visible { outline: none; box-shadow: var(--el-focus); }
+
+/* Pills. */
+.el-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--el-radius-pill);
+  font: 500 12px/1 var(--el-font);
+  white-space: nowrap;
+  --el-pill-dot: currentColor;
+}
+.el-pill-neutral { background: var(--el-surface-2); color: var(--el-text-2); }
+.el-pill-accent { background: var(--el-accent-soft); color: var(--el-accent); }
+.el-pill-ok { background: var(--el-ins-bg); color: var(--el-ins); }
+/* --el-del on --el-del-bg is under 4.5:1 in the light scheme: the text stays --el-text, the dot is red. */
+.el-pill-error { background: var(--el-del-bg); color: var(--el-text); --el-pill-dot: var(--el-del); }
+.el-pill-dot::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--el-pill-dot); }
+
+/* The family colours, as --el-fam for whatever draws in them (a dot, an underline). */
+.el-fam-correctness { --el-fam: var(--el-correctness); }
+.el-fam-clarity { --el-fam: var(--el-clarity); }
+.el-fam-engagement { --el-fam: var(--el-engagement); }
+.el-fam-delivery { --el-fam: var(--el-delivery); }
+.el-fam-generic { --el-fam: var(--el-generic); }
+
+/* Type label: the family dot, then "{Family} · {action}" (the words carry the family, not the colour alone). */
+.el-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--el-text-2);
+  font: 500 12px/1.45 var(--el-font);
+}
+.el-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--el-fam, var(--el-text-3)); }
+.el-type-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Diff preview: context, the original struck, the replacement inserted. */
+.el-diff {
+  display: block;
+  color: var(--el-text-2);
+  font: 14px/1.45 var(--el-font);
+  overflow-wrap: anywhere;
+}
+.el-diff del {
+  color: var(--el-del);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.el-diff ins {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--el-ins-bg);
+  color: var(--el-ins);
+  font-weight: 600;
+  text-decoration: none;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+/* A gap where the insertion meets the deletion, as a margin: a copy of the text gains no space. */
+.el-diff del + ins { margin-inline-start: 4px; }
+/* A comment-only note: the words it is about, not struck. */
+.el-diff mark {
+  background: none;
+  color: var(--el-text);
+  font-weight: 600;
+  text-decoration: underline dotted var(--el-fam, var(--el-text-3)) 2px;
+  text-underline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .el-btn, .el-icon-btn, .el-icon-btn::after, .el-switch, .el-switch-thumb, .el-seg-item { transition-duration: 0s; }
+  .el-icon-btn:hover::after, .el-icon-btn:focus-visible::after { transition-duration: 0s; }
+}

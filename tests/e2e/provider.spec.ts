@@ -123,8 +123,7 @@ test('a custom endpoint answers live checks and rewrites, the Citation finder hi
 
   // A Rewrite returns the smart model's versions.
   await page.locator('#ta').evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(2, 11)); // "has a cat"
-  await page.locator('.englint-select-btn').click();
-  await popover(page).getByRole('button', { name: 'Rewrite', exact: true }).click();
+  await page.locator('.englint-bar').getByRole('button', { name: 'Improve', exact: true }).click();
   await expect(popover(page).getByRole('button', { name: /^Use version \d$/ })).toHaveCount(3);
   expect(compat.requests.some((r) => r.body?.model === SMART)).toBe(true);
   await page.keyboard.press('Escape');

@@ -1,7 +1,9 @@
 import { MAX_VOICE_SAMPLE_CHARS } from '../core/context';
 import { costFromUsage } from '../core/cost';
+import { countWords } from '../core/doc-stats';
 import { keyNeeded, type ProviderConfig } from '../core/provider';
 import { MAX_ECHO_CHARS, MAX_FOLLOW_UPS, MAX_QUESTION_CHARS } from '../core/follow-up';
+import { isMode } from '../core/modes';
 import { MAX_FOCUS_REASON, isVoice, presetsFor, type ToolRequest } from '../core/presets';
 import { hashText } from '../core/paragraphs';
 import { isPageDisabled, isExtensionPage } from '../core/sites';
@@ -13,14 +15,17 @@ import {
   SYNONYMS_JSON_SCHEMA,
   VARIANTS_JSON_SCHEMA,
   VOICE_JSON_SCHEMA,
+  WORD_LIMIT_JSON_SCHEMA,
   cleanCritique,
   cleanFollowUp,
   cleanStyleProfile,
   cleanSynonyms,
   cleanVariants,
   cleanVoice,
+  cleanWordLimit,
 } from '../core/tool-schema';
 import type { CheckStatus, Mode } from '../core/types';
+import { MAX_SHOWN_CUTS, MAX_WORD_LIMIT_CHARS, validTarget } from '../core/word-limit';
 import type {
   FollowUpRequest,
   FollowUpResponse,
@@ -30,15 +35,17 @@ import type {
   StyleProfileResponse,
   SynonymsRequest,
   SynonymsResponse,
+  WordLimitRequest,
+  WordLimitResponse,
 } from '../shared/messages';
 import { dialectItem, disabledSitesItem, styleProfileItem } from '../shared/settings';
-import { REWRITE_MODEL, SYNONYMS_MODEL, type ToolCall, type ToolResult } from './claude';
+import { REWRITE_MODEL, SYNONYMS_MODEL, type BilledRun, type ToolCall, type ToolResult } from './claude';
 import { statusFromError } from './errors';
 import { endpointBlocked, readProvider, type ProviderDeps } from './provider-gate';
 import type { LlmClient } from './llm';
 import { buildFollowUpSystem, buildFollowUpUser } from './prompts/follow-up';
 import { buildStyleProfileSystem, buildStyleProfileUser } from './prompts/style-profile';
-import { buildRewriteSystem, buildRewriteUser } from './prompts/rewrite';
+import { buildRewriteSystem, buildRewriteUser, buildWordLimitSystem, buildWordLimitUser } from './prompts/rewrite';
 import { buildSynonymsSystem, buildSynonymsUser } from './prompts/synonyms';
 import { isOverCap, recordSpend } from './usage';
 
@@ -58,6 +65,21 @@ function overLimits(req: { text: string; before: string; after: string; request:
   if (req.before.length > MAX_CONTEXT_CHARS || req.after.length > MAX_CONTEXT_CHARS) return true;
   const focus = req.request.kind === 'preset' ? req.request.focus : undefined;
   return !!focus && (focus.label.length > MAX_FOCUS_LABEL_CHARS || focus.reason.length > MAX_FOCUS_REASON);
+}
+
+/**
+ * Whether Find more cuts' shown cuts are usable: at most MAX_SHOWN_CUTS, each a range of `text` that holds its
+ * original, and their replacements within MAX_WORD_LIMIT_CHARS in all.
+ */
+function shownValid(text: string, shown: unknown): boolean {
+  if (!Array.isArray(shown) || shown.length > MAX_SHOWN_CUTS) return false;
+  let room = MAX_WORD_LIMIT_CHARS;
+  return shown.every((c) => {
+    if (!c || typeof c.original !== 'string' || typeof c.replacement !== 'string') return false;
+    if (!Number.isInteger(c.start) || !Number.isInteger(c.end) || c.start < 0 || c.end > text.length) return false;
+    room -= c.replacement.length;
+    return text.slice(c.start, c.end) === c.original && c.original !== '' && room >= 0;
+  });
 }
 
 /** Whether the request's mode offers its preset (Expand isn't offered on Essay sites); a custom request always is. */
@@ -89,7 +111,8 @@ export function createToolsService(deps: ToolsServiceDeps) {
 
   /**
    * The key and cap gates, the call, and spend. The provider settings are read once, and the key, the permission and
-   * the client follow that read. Returns the parsed JSON, or the status that stopped it.
+   * the client follow that read. Returns the parsed JSON, or the status that stopped it. A streamed call that broke
+   * after it started is billed for what it had shown (BilledRun.spentSoFar; null for a call sent whole).
    */
   async function call(toolCall: ToolCall): Promise<{ status: CheckStatus; data?: unknown }> {
     const provider = await readProvider(deps);
@@ -99,11 +122,15 @@ export function createToolsService(deps: ToolsServiceDeps) {
     if (await endpointBlocked(deps, provider)) return { status: 'endpoint_blocked' };
 
     let out: ToolResult;
-    let client: LlmClient;
+    let client: LlmClient | null = null;
+    let run: BilledRun<ToolResult> | null = null;
     try {
       client = await deps.makeClient(provider, key);
-      out = await client.startToolCall(toolCall).done;
+      run = client.startToolCall(toolCall);
+      out = await run.done;
     } catch (err) {
+      const spent = run?.spentSoFar();
+      if (run && spent) await recordSpend(costFromUsage(run.model, spent, client?.prices), deps.now());
       return { status: statusFromError(err) };
     }
     // Truncated calls are billed too.
@@ -196,6 +223,30 @@ export function createToolsService(deps: ToolsServiceDeps) {
   }
 
   /**
+   * Fit a word limit: cuts to choose from and one version at or under the target, in any mode (the writer picks each
+   * cut, so Essay has no critique first). Its selection may run to MAX_WORD_LIMIT_CHARS, past the rewrite's limit. Its
+   * mode must be one EngLint has: every mode offers it, so there is no preset to check it against as a rewrite does.
+   */
+  async function wordLimit(req: WordLimitRequest, ctx: ToolsContext = {}): Promise<WordLimitResponse> {
+    const { text, before, after, target, shown = [] } = req;
+    if (!isMode(req.mode)) return { status: 'bad_response' };
+    if (typeof text !== 'string' || text.trim() === '' || text.length > MAX_WORD_LIMIT_CHARS) return { status: 'bad_response' };
+    if (before.length > MAX_CONTEXT_CHARS || after.length > MAX_CONTEXT_CHARS) return { status: 'bad_response' };
+    if (!validTarget(target, countWords(text)) || !shownValid(text, shown)) return { status: 'bad_response' };
+    const dialect = await dialectItem.getValue();
+    const profile = await profileText();
+    const { status, data } = await run(req.host, ctx.topHost, {
+      kind: 'wordLimit',
+      system: buildWordLimitSystem(req.mode, dialect, profile),
+      user: buildWordLimitUser({ text, before, after, target, shown }),
+      schema: WORD_LIMIT_JSON_SCHEMA,
+    });
+    if (status !== 'ok') return { status };
+    const answer = cleanWordLimit(data, text, target, shown);
+    return answer && (answer.cuts.length > 0 || answer.version) ? { status: 'ok', ...answer } : { status: 'bad_response' };
+  }
+
+  /**
    * A style profile described from the pieces the writer pasted. Answers only an extension page; nothing is stored
    * here (the options page saves the profile when the writer does), and the pieces are sent once, as data.
    */
@@ -216,7 +267,7 @@ export function createToolsService(deps: ToolsServiceDeps) {
     return profile ? { status: 'ok', profile } : { status: 'bad_response' };
   }
 
-  return { rewrite, synonyms, followUp, buildStyleProfile };
+  return { rewrite, synonyms, followUp, wordLimit, buildStyleProfile };
 }
 
 export type ToolsService = ReturnType<typeof createToolsService>;

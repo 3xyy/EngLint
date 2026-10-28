@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import type { CDPSession, Page } from '@playwright/test';
 import { expect, setKey, test } from './fixtures';
 import { paragraphsOf } from './mock-anthropic';
@@ -87,6 +89,52 @@ test('Harper flags "a apple" and "the the" from an offscreen document, with no A
   expect(mock.requests).toHaveLength(0);
 });
 
+test("the Harper worker ships as one file of the extension, without harper.js's own blob: worker inside it", () => {
+  const dir = resolve('.output-e2e/chrome-mv3/assets');
+  const files = readdirSync(dir).filter((f) => /^harper\.worker-.+\.js$/.test(f));
+  expect(files).toHaveLength(1);
+  const source = readFileSync(join(dir, files[0]!), 'utf8');
+  expect(source).not.toContain('URL.revokeObjectURL(import.meta.url)'); // the start of WorkerLinter's inline source
+  expect(source.length).toBeLessThan(100_000);
+});
+
+test("Harper starts in a worker: an open side panel never stalls while it builds the dictionary", async ({
+  page,
+  pagesURL,
+  extensionId,
+  serviceWorker,
+}) => {
+  await page.goto(`${pagesURL}/textarea.html`);
+  const send = await contentWorld(page, extensionId);
+  // The extension's pages share one main thread: the panel's 10 ms timer measures how long it was held up.
+  const panel = await page.context().newPage();
+  await panel.addInitScript(() => {
+    const w = window as any;
+    let last = performance.now();
+    w.__longest = 0;
+    const tick = () => {
+      const now = performance.now();
+      w.__longest = Math.max(w.__longest, now - last);
+      last = now;
+      setTimeout(tick, 10);
+    };
+    tick();
+  });
+  await panel.goto(`chrome-extension://${extensionId}/sidepanel.html?tabId=424242`);
+  await expect(panel.getByRole('tab', { name: 'Issues' })).toBeVisible();
+  await panel.waitForTimeout(300); // past the panel's own start
+  await panel.evaluate(() => ((window as any).__longest = 0));
+  expect(await offscreenDocuments(serviceWorker)).toEqual([]);
+
+  // The first check creates the document, which builds Harper (hundreds of milliseconds of WebAssembly).
+  const found = async () => {
+    const reply = await send('harperCheck', { host: '127.0.0.1', mode: 'standard', paragraphs: [{ hash: 'p1', text: 'I ate a apple.' }] });
+    return (reply?.res as HarperResponse | undefined)?.results?.p1?.length ?? 0;
+  };
+  await expect.poll(found, { timeout: 20_000 }).toBeGreaterThan(0);
+  expect(await panel.evaluate(() => (window as any).__longest)).toBeLessThan(150);
+});
+
 test('Harper answers off_site on a switched-off site and creates no document', async ({ page, pagesURL, extensionId, serviceWorker }) => {
   await serviceWorker.evaluate(() => chrome.storage.local.set({ disabledSites: ['127.0.0.1'] }));
   await page.goto(`${pagesURL}/textarea.html`);
@@ -145,7 +193,7 @@ test('with no key saved, "I ate a apple." gets an underline whose fix is "an", a
   await typeInTextarea(page, 'I ate a apple.');
   await expect(errorUnderline(page)).toHaveCount(1, { timeout: 15_000 });
   await pointAt(page, '.englint-underline.error');
-  await expect(page.locator('.englint-card-fix')).toHaveText('an');
+  await expect(page.locator('.englint-card-preview ins')).toHaveText('an');
   await expect.poll(() => tabStatuses(serviceWorker)).toEqual(['key_missing']);
   expect(mock.requests).toHaveLength(0);
 });
@@ -164,7 +212,7 @@ test('a Harper spelling underline shows first, then goes when Claude answers the
   await expect(errorUnderline(page)).toHaveCount(1, { timeout: 5000 });
   expect(mock.responses).toBe(0); // shown before Claude's answer
   await pointAt(page, '.englint-underline.error');
-  await expect(page.locator('.englint-card-fix')).toHaveText('tomorrow');
+  await expect(page.locator('.englint-card-preview ins')).toHaveText('tomorrow');
   await expect.poll(() => mock.requests.length, { timeout: 5000 }).toBe(1);
   expect(paragraphsOf(mock.requests[0]).map((p) => p.text)).toEqual(['I will see you tommorow.']);
   await expect.poll(() => mock.responses, { timeout: 15_000 }).toBe(1);

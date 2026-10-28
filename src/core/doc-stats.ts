@@ -28,6 +28,9 @@ function wordsOf(text: string): string[] {
   return out;
 }
 
+/** The words in `text`, counted as the Review tab's Overview counts them: the one word counter the tools share. */
+export const countWords = (text: string): number => wordsOf(text).length;
+
 /** Sentences end at . ! or ? followed by whitespace or the end; line breaks also end one. */
 function countSentences(text: string): number {
   let n = 0;

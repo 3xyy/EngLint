@@ -225,6 +225,7 @@ describe('compatibleClient request shape', () => {
     ['tone', 4096],
     ['synonyms', 4096],
     ['rewrite', 4096],
+    ['wordLimit', 8192],
     ['grader', 6144],
     ['deepCheck', 12_000],
   ] as const)('gives %s max_tokens %i (the kind its own room, never under 4096)', async (kind, expected) => {
@@ -278,6 +279,7 @@ describe('compatibleClient request shape', () => {
 
   it.each([
     ['rewrite', 'smart-1'],
+    ['wordLimit', 'smart-1'],
     ['followUp', 'smart-1'],
     ['styleProfile', 'smart-1'],
     ['readers', 'smart-1'],
@@ -368,6 +370,7 @@ describe('compatibleClient tool calls', () => {
 
   it.each([
     ['rewrite', 2],
+    ['wordLimit', 1],
     ['tone', 1],
     ['deepCheck', 1],
   ] as const)('retries a failed %s request to %i request(s) in all', async (kind, requests) => {

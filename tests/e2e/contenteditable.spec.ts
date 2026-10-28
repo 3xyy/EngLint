@@ -61,7 +61,7 @@ async function pointAt(page: Page, selector: string): Promise<void> {
 async function acceptFromCard(page: Page): Promise<void> {
   await pointAt(page, '.englint-underline.error');
   await expect(card(page)).toBeVisible();
-  await page.locator('.englint-card-fix').click();
+  await page.locator('.englint-card-accept').click();
 }
 
 /** The viewport rect of `word` inside the editor `selector`, measured on the page's own DOM. */
@@ -215,7 +215,7 @@ test('caret moving into an issue opens its card', async ({ page, pagesURL, mock 
   await expect(card(page)).toBeHidden();
   for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight'); // caret 4: inside "has"
   await expect(card(page)).toBeVisible();
-  await expect(page.locator('.englint-card-fix')).toHaveText('have');
+  await expect(page.locator('.englint-card-preview ins')).toHaveText('have');
 });
 
 test('panel jumpTo selects the issue', async ({ page, pagesURL, mock, serviceWorker }) => {

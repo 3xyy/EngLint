@@ -6,13 +6,16 @@ import {
   SYNONYMS_JSON_SCHEMA,
   VARIANTS_JSON_SCHEMA,
   VOICE_JSON_SCHEMA,
+  WORD_LIMIT_JSON_SCHEMA,
   cleanCritique,
   cleanFollowUp,
   cleanStyleProfile,
   cleanSynonyms,
   cleanVariants,
   cleanVoice,
+  cleanWordLimit,
   matchCase,
+  MAX_WEAKNESS_CHARS,
 } from '../../src/core/tool-schema';
 
 describe('JSON schemas', () => {
@@ -73,6 +76,29 @@ describe('cleanCritique', () => {
     expect(cleanCritique({ weakness: ' w ', light_fix: ' f ' })).toEqual({ weakness: 'w', lightFix: 'f' });
   });
   it('fails on blank parts', () => expect(cleanCritique({ weakness: '', light_fix: 'f' })).toBeNull());
+  it('clamps a 300-character weakness to at most 140 characters at a word boundary, marked with "…"', () => {
+    const words = 'The opening sentence repeats the same idea twice and buries the point under filler words'.split(' ');
+    let long = '';
+    for (let i = 0; long.length < 300; i++) long += (long ? ' ' : '') + words[i % words.length];
+    long = long.slice(0, 300);
+    const { weakness } = cleanCritique({ weakness: long, light_fix: 'f' })!;
+    expect(weakness.length).toBeLessThanOrEqual(MAX_WEAKNESS_CHARS);
+    expect(MAX_WEAKNESS_CHARS).toBe(140);
+    expect(weakness.endsWith('…')).toBe(true);
+    const kept = weakness.slice(0, -1);
+    expect(long.startsWith(kept)).toBe(true);
+    expect(long[kept.length]).toBe(' '); // cut where a word ended
+    expect(kept.length).toBeGreaterThan(100); // not cut far short
+  });
+  it('keeps a weakness of 140 characters or fewer as it is', () => {
+    const exact = `${'word '.repeat(27)}words`; // 140
+    expect(exact).toHaveLength(140);
+    expect(cleanCritique({ weakness: exact, light_fix: 'f' })!.weakness).toBe(exact);
+  });
+  it('cuts a weakness with no space in reach mid-word rather than not at all', () => {
+    const { weakness } = cleanCritique({ weakness: 'x'.repeat(300), light_fix: 'f' })!;
+    expect(weakness).toBe(`${'x'.repeat(139)}…`);
+  });
 });
 
 describe('matchCase', () => {
@@ -155,5 +181,78 @@ describe('Sound like me', () => {
     expect(cleanVoice({ tells: ['a'] }, 'x')).toBeNull();
     expect(cleanVoice({ tells: 'a', final: 'y' }, 'x')).toBeNull();
     expect(cleanVoice(null, 'x')).toBeNull();
+  });
+});
+
+describe('cleanWordLimit', () => {
+  const SEL = 'In order to win the final, we really practiced every single day after school in 2019.'; // 16 words
+  const raw = (cuts: { original: string; replacement: string; why?: string }[], version = '') => ({ cuts: cuts.map((c) => ({ why: 'filler', ...c })), version });
+
+  it('finds each cut in the selection by its offsets and counts its savings locally', () => {
+    const out = cleanWordLimit(raw([{ original: 'In order to', replacement: 'To' }, { original: 'every single day', replacement: 'daily', why: '  says it  twice ' }]), SEL, 12)!;
+    expect(out.cuts).toEqual([
+      { start: 0, end: 11, original: 'In order to', replacement: 'To', why: 'filler', saves: 2, changesFacts: false },
+      { start: 47, end: 63, original: 'every single day', replacement: 'daily', why: 'says it twice', saves: 2, changesFacts: false },
+    ]);
+  });
+  it('drops a cut whose original is not in the selection, or only inside a word', () => {
+    const out = cleanWordLimit(raw([{ original: 'In order for', replacement: 'For' }, { original: 'act', replacement: '' }, { original: 'really', replacement: '' }]), SEL, 12)!;
+    expect(out.cuts.map((c) => c.original)).toEqual(['really']);
+  });
+  it('drops a cut that overlaps one kept before it, or one already shown', () => {
+    const out = cleanWordLimit(raw([{ original: 'every single day', replacement: 'daily' }, { original: 'single day after', replacement: 'day after' }, { original: 'really', replacement: '' }]), SEL, 12, [{ start: 30, end: 36 }])!;
+    expect(out.cuts.map((c) => c.original)).toEqual(['every single day']);
+  });
+  it('a repeated original takes its first unused occurrence', () => {
+    const sel = 'It was very, very cold.';
+    const out = cleanWordLimit(raw([{ original: 'very', replacement: '' }, { original: 'very', replacement: '' }, { original: 'very', replacement: '' }]), sel, 3)!;
+    expect(out.cuts.map((c) => [c.start, c.end])).toEqual([[7, 11], [13, 17]]);
+  });
+  it('drops a cut that saves no word by the local count, whatever the model meant', () => {
+    const out = cleanWordLimit(raw([{ original: 'win', replacement: 'take' }, { original: 'In order to', replacement: 'So as to' }, { original: 'final,', replacement: 'final' }]), SEL, 12)!;
+    expect(out.cuts).toEqual([]);
+  });
+  it('flags a cut that changes a number, name, date or quote, by the strict rule', () => {
+    const out = cleanWordLimit(raw([{ original: 'after school in 2019', replacement: 'after school' }, { original: 'really', replacement: '' }]), SEL, 12)!;
+    expect(out.cuts.map((c) => [c.original, c.changesFacts])).toEqual([['after school in 2019', true], ['really', false]]);
+  });
+  it('keeps the version only at or under the target, by the local count', () => {
+    const v12 = 'To win the final, we practiced daily after school in 2019.'; // 11 words
+    expect(cleanWordLimit(raw([], v12), SEL, 12)!.version).toBe(v12);
+    expect(cleanWordLimit(raw([], `  ${v12}  `), SEL, 11)!.version).toBe(v12);
+    expect(cleanWordLimit(raw([], v12), SEL, 10)!.version).toBeNull();
+    expect(cleanWordLimit(raw([], '   '), SEL, 12)!.version).toBeNull();
+  });
+  it('drops a version under 80% of the target: a summary, not a fit', () => {
+    const words = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`).join(' ');
+    expect(cleanWordLimit(raw([], words(8)), SEL, 10)!.version).toBe(words(8)); // exactly 80%
+    expect(cleanWordLimit(raw([], words(7)), SEL, 10)!.version).toBeNull(); // just under
+    expect(cleanWordLimit(raw([], words(10)), SEL, 12)!.version).toBe(words(10)); // 83%
+    expect(cleanWordLimit(raw([], words(9)), SEL, 12)!.version).toBeNull(); // 75%: 9.6 is the floor
+    expect(cleanWordLimit(raw([], 'To win, we practiced.'), SEL, 15)!.version).toBeNull(); // 4 words for 15
+  });
+  it('flags a version that changes a number, name, date or quote, with sentence openers free to change; none without a version', () => {
+    const kept = 'To win the final, we practiced daily after school in 2019.'; // 11 words
+    const dropped = 'To win the final, we practiced daily after school.'; // 9 words
+    expect(cleanWordLimit(raw([], kept), SEL, 12)).toMatchObject({ version: kept, versionChangesFacts: false });
+    expect(cleanWordLimit(raw([], dropped), SEL, 11)).toMatchObject({ version: dropped, versionChangesFacts: true });
+    expect(cleanWordLimit(raw([], 'We trained daily after school in 2019. Then we won the final.'), SEL, 12)).toMatchObject({ versionChangesFacts: false }); // a new opener
+    expect(cleanWordLimit(raw([{ original: 'really', replacement: '' }], dropped), SEL, 5)).toMatchObject({ version: null, versionChangesFacts: false });
+  });
+  it('keeps at most 12 cuts, and a why of at most 80 characters', () => {
+    const sel = Array.from({ length: 20 }, (_, i) => `word${i} extra${i}`).join(' ');
+    const out = cleanWordLimit(raw(Array.from({ length: 20 }, (_, i) => ({ original: `extra${i}`, replacement: '', why: 'x '.repeat(60) }))), sel, 20)!;
+    expect(out.cuts).toHaveLength(12);
+    expect(out.cuts.every((c) => c.why.length <= 80)).toBe(true);
+  });
+  it('an answer that does not match the schema is null', () => {
+    expect(cleanWordLimit({ cuts: [{ original: 'a' }], version: '' }, SEL, 12)).toBeNull();
+    expect(cleanWordLimit(null, SEL, 12)).toBeNull();
+  });
+  it('the schema names cuts (original, replacement, why) and version', () => {
+    expect(WORD_LIMIT_JSON_SCHEMA).not.toHaveProperty('$schema');
+    expect(Object.keys(WORD_LIMIT_JSON_SCHEMA.properties as object)).toEqual(['cuts', 'version']);
+    const item = (WORD_LIMIT_JSON_SCHEMA.properties as any).cuts.items;
+    expect(Object.keys(item.properties)).toEqual(['original', 'replacement', 'why']);
   });
 });

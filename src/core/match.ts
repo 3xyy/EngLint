@@ -5,9 +5,9 @@ import type { FamilyToggle, FamilyToggles, LocatedIssue, Mode, Paragraph, RawIss
 import { carryTypography, dictionaryForm, foldTypography } from './typography';
 
 /** At most this many suggestions per paragraph (errors are never capped). */
-export const MAX_SUGGESTIONS = 3;
+export const MAX_SUGGESTIONS = 5;
 /** At most this many suggestions per paragraph from any one family. */
-export const MAX_PER_FAMILY = 2;
+export const MAX_PER_FAMILY = 3;
 /** Essay: a suggestion whose replacement adds more words than this becomes comment-only. */
 const ESSAY_MAX_ADDED_WORDS = 3;
 
@@ -21,6 +21,14 @@ export interface SuggestionPolicy {
 }
 
 const norm = (s: string) => s.replace(/[\s\u00a0]+/g, ' ').trim();
+
+/**
+ * A change that changes nothing: the same text, or for a suggestion the same words in another case or spacing
+ * ("many different tasks" -> "Many different tasks"). An error keeps a case-only fix: that is a capitalization fix.
+ */
+const isNoOp = (issue: Pick<RawIssue, 'severity'>, original: string, replacement: string | null) =>
+  replacement === original ||
+  (issue.severity === 'suggestion' && replacement !== null && norm(replacement).toLowerCase() === norm(original).toLowerCase());
 
 export function issueId(paragraphHash: string, relStart: number, kind: string): string {
   return `${paragraphHash}:${relStart}:${kind}`;
@@ -125,9 +133,9 @@ function admit(issue: RawIssue, policy: SuggestionPolicy): RawIssue | null {
   if (suggestion && kindInfo(kind)?.family === 'correctness') return null;
   if (isSuppressedEdit(original, replacement)) return null;
   if (policy.mode === 'casual' && (suggestion || isCasualSuppressedEdit(original, replacement))) return null;
-  // A comment-only note is kept for suggestions, which offer "Rewrite this sentence"; an error needs a fix to apply.
+  // A comment-only note is kept for suggestions, which offer "Rewrite sentence"; an error needs a fix to apply.
   if (replacement === null && !suggestion) return null;
-  if (replacement === original) return null;
+  if (isNoOp(issue, original, replacement)) return null;
   if (suggestion && !policy.families[suggestionToggle(issue)]) return null;
   // Essay policy is for suggestions only: errors keep their minimal fixes.
   const essay = suggestion && policy.mode === 'essay' ? essayPolicy(kind) : null;
@@ -155,7 +163,7 @@ export function selectIssues(paragraph: Paragraph, raw: (RawIssue & { at?: numbe
     // takes on the document's curled quotes.
     const original = paragraph.text.slice(pos.start, pos.end);
     const replacement = issue.replacement === null ? null : carryTypography(original, issue.replacement);
-    if (replacement === original) continue; // the fix only restyled what the document already has
+    if (isNoOp(issue, original, replacement)) continue; // the fix only restyles or recases what the document already has
     located.push({ issue: { ...issue, original, replacement }, model: candidate, ...pos });
   }
 

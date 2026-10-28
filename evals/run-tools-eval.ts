@@ -43,8 +43,18 @@ async function call(call: ToolCall) {
 const synonyms = (target: string, sentence: string) =>
   call({ kind: 'synonyms', system: buildSynonymsSystem('standard', 'en-US'), user: buildSynonymsUser({ target, sentence, targetStart: sentence.indexOf(target) }), schema: SYNONYMS_JSON_SCHEMA });
 
-const rewrite = (request: RewriteToolRequest, text: string, stage: 'critique' | 'variants' = 'variants') =>
-  call({ kind: 'rewrite', system: buildRewriteSystem('essay', 'en-US'), user: buildRewriteUser({ request, text, before: '', after: '', stage }), schema: stage === 'critique' ? CRITIQUE_JSON_SCHEMA : VARIANTS_JSON_SCHEMA });
+const rewrite = (request: RewriteToolRequest, text: string, stage: 'critique' | 'variants' = 'variants', around = { before: '', after: '' }) =>
+  call({ kind: 'rewrite', system: buildRewriteSystem('essay', 'en-US'), user: buildRewriteUser({ request, text, ...around, stage }), schema: stage === 'critique' ? CRITIQUE_JSON_SCHEMA : VARIANTS_JSON_SCHEMA });
+
+/** The model's own weakness, before the clamp: its words and sentences (the prompt asks for one of at most 12 words; the check allows 15). */
+function weaknessShape(data: unknown): { words: number; sentences: number; chars: number } {
+  const w = String((data as { weakness?: unknown } | null)?.weakness ?? '').trim();
+  return { words: w.split(/\s+/).filter(Boolean).length, sentences: (w.match(/[.!?]+(?=\s|$)/g) ?? []).length || (w ? 1 : 0), chars: w.length };
+}
+const shortWeakness = (s: { words: number; sentences: number }) => s.words >= 1 && s.words <= 15 && s.sentences === 1;
+const shapeDetail = (s: { words: number; sentences: number; chars: number }) => `${s.words} words, ${s.sentences} sentence(s), ${s.chars} chars`;
+/** Words a critique uses when it talks about the selection's edges instead of the writing. */
+const EDGE_TALK = /\b(fragment|incomplete|cut off|partial|selection|selected|starts? (mid|in the middle)|ends? (mid|abruptly))\b/i;
 
 const followUp = (mode: Mode, request: RewriteToolRequest, text: string, shown: string, question: string) =>
   call({ kind: 'followUp', system: buildFollowUpSystem(mode, 'en-US'), user: buildFollowUpUser({ request, text, before: '', after: '', shown, history: [], question }), schema: FOLLOW_UP_JSON_SCHEMA });
@@ -114,7 +124,7 @@ async function main() {
   }
 
   console.log('Rewrite (Sonnet)');
-  const presets = ['rewrite', 'shorter', 'clearer', 'formal', 'confident', 'friendlier', 'casual', 'simpler', 'expand'] as const;
+  const presets = ['rewrite', 'shorter', 'formal', 'confident', 'friendlier', 'casual', 'expand'] as const;
   let formalShown: string[] | null = null; // shown to the Standard follow-up below
   for (const presetId of presets) {
     const { data } = await rewrite({ kind: 'preset', presetId }, PARAGRAPH);
@@ -132,8 +142,15 @@ async function main() {
   const TERSE = 'The trip was fun. We saw the lake and ate lunch.';
   const expanded = cleanVariants((await rewrite({ kind: 'preset', presetId: 'expand' }, TERSE)).data, TERSE);
   check('expand: all longer than a terse input', !!expanded && expanded.every((v) => v.length > TERSE.length), expanded ? expanded.map((v) => v.length).join('/') + ` vs ${TERSE.length}` : 'no variants');
-  const crit = cleanCritique((await rewrite({ kind: 'preset', presetId: 'clearer' }, PARAGRAPH, 'critique')).data);
+  const critData = (await rewrite({ kind: 'preset', presetId: 'rewrite' }, PARAGRAPH, 'critique')).data;
+  const crit = cleanCritique(critData);
   check('critique: weakness and light fix present', !!crit);
+  check('critique: the weakness is one sentence of at most 15 words', shortWeakness(weaknessShape(critData)), shapeDetail(weaknessShape(critData)));
+  // Part of a sentence, as a writer selects it: the critique is about the writing, not the selection's edges.
+  const partData = (await rewrite({ kind: 'preset', presetId: 'rewrite' }, 'problems that we were facing at that time', 'critique', { before: 'One of the biggest ', after: ' was money.' })).data;
+  const part = cleanCritique(partData);
+  check('critique of part of a sentence: one sentence of at most 15 words', !!part && shortWeakness(weaknessShape(partData)), shapeDetail(weaknessShape(partData)));
+  check('critique of part of a sentence: nothing about the selection\'s edges', !!part && !EDGE_TALK.test(part.weakness));
 
   console.log('Follow-ups (Sonnet)');
   // Standard: after the More formal versions, the writer asks for less formal ones.
@@ -148,7 +165,7 @@ async function main() {
   } else check('follow-up Standard: a message and 1-3 versions, not truncated', false, 'no More formal versions to follow up on');
   // Essay: after the critique, the writer asks for a full rewrite; the gate holds (critique first, one light touch).
   if (crit) {
-    const ess = await followUp('essay', { kind: 'preset', presetId: 'clearer' }, PARAGRAPH, shownCritique(crit), 'Just rewrite the whole thing for me so it sounds impressive.');
+    const ess = await followUp('essay', { kind: 'preset', presetId: 'rewrite' }, PARAGRAPH, shownCritique(crit), 'Just rewrite the whole thing for me so it sounds impressive.');
     const raw = (ess.data as { variants?: unknown } | null)?.variants;
     const rawCount = Array.isArray(raw) ? raw.length : 0;
     const a = cleanFollowUp(ess.data, PARAGRAPH, 'essay');
@@ -167,8 +184,10 @@ async function main() {
   for (const [kind, selection, reason] of FOCUS_CASES) {
     const keyword = FOCUS_KEYWORDS[kind]!;
     const request: RewriteToolRequest = { kind: 'preset', presetId: 'rewrite', focus: focusFor({ kind, reason }) };
-    const c = cleanCritique((await rewrite(request, selection, 'critique')).data);
+    const cData = (await rewrite(request, selection, 'critique')).data;
+    const c = cleanCritique(cData);
     check(`focus ${kind}: critique names the problem`, !!c && keyword.test(c.weakness), c ? `${c.weakness.length} chars` : 'no critique');
+    check(`focus ${kind}: the weakness is one sentence of at most 15 words`, shortWeakness(weaknessShape(cData)), shapeDetail(weaknessShape(cData)));
     const v = cleanVariants((await rewrite(request, selection)).data, selection);
     check(`focus ${kind}: 3 variants`, !!v);
   }
@@ -177,7 +196,7 @@ async function main() {
   // About 2,000 characters (the background's limit), timed: it must finish inside the 60 s tool timeout.
   const LONG = PARAGRAPH.repeat(9).slice(0, 2000);
   const t0 = Date.now();
-  const long = await rewrite({ kind: 'preset', presetId: 'clearer' }, LONG);
+  const long = await rewrite({ kind: 'preset', presetId: 'rewrite' }, LONG);
   const secs = (Date.now() - t0) / 1000;
   check('2,000-char selection: 3 variants inside 60 s', !!cleanVariants(long.data, LONG) && secs < 60, `${LONG.length} chars, ${secs.toFixed(1)} s, ${long.usage.output_tokens} output tokens`);
   // Varied prose made more formal: the case that needs the most output (three full versions, plus the

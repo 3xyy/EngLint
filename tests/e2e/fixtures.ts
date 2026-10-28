@@ -113,7 +113,7 @@ export async function clarityOn(sw: Worker): Promise<void> {
     chrome.storage.local.set({
       suggestionFamiliesByMode: {
         essay: { clarity: true, engagement: true, delivery: true, generic: false },
-        standard: { clarity: true, engagement: false, delivery: false, generic: false },
+        standard: { clarity: true, engagement: true, delivery: false, generic: false },
         casual: { clarity: false, engagement: false, delivery: false, generic: false },
       },
     }),

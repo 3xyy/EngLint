@@ -14,8 +14,15 @@ export async function pixelAt(page: Page, x: number, y: number): Promise<[number
   return [raw[1]!, raw[2]!, raw[3]!];
 }
 
-/** The pixel at the middle of an underline's bar is its red (#E5483A): it is painted, not covered. */
+/** The pixel at the middle of an underline's bar is its red (#E5484D, the Correctness colour): it is painted, not covered. */
 export async function underlinePainted(page: Page, box: { x: number; y: number; width: number; height: number }): Promise<boolean> {
   const [r, g, b] = await pixelAt(page, Math.round(box.x + box.width / 2), Math.floor(box.y + box.height / 2));
   return r > 180 && g < 120 && b < 120;
+}
+
+/** A computed colour as [r, g, b, a] (0–255, alpha to 2 places), whether Chromium writes it as rgb(…) or color(srgb …). */
+export function rgba(css: string): [number, number, number, number] {
+  const n = (css.match(/[\d.]+/g) ?? []).map(Number);
+  const [r, g, b] = css.startsWith('color(') ? n.slice(0, 3).map((c) => Math.round(c * 255)) : n.slice(0, 3);
+  return [r!, g!, b!, Math.round((n[3] ?? 1) * 100) / 100];
 }

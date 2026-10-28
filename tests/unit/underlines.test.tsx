@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Underlines } from '../../src/content/overlay/Underlines';
+import { UNDERLINE_PX, Underlines } from '../../src/content/overlay/Underlines';
 import type { LocatedIssue } from '../../src/core/types';
 
 const issue = (id: string, o: Partial<LocatedIssue>): LocatedIssue =>
@@ -56,5 +57,44 @@ describe('Underlines: one style per suggestion family', () => {
   it("an active suggestion's tint carries its family too, so the tint is in the family's colour", () => {
     const tints = [...draw(['eng', 'gen', 'err']).querySelectorAll('.englint-tint')].map((el) => el.className);
     expect(tints).toEqual(['englint-tint error', 'englint-tint suggestion fam-engagement', 'englint-tint suggestion fam-generic']);
+  });
+});
+
+describe('Underlines: the line says what kind of issue it is', () => {
+  const NOTE = issue('note', { severity: 'suggestion', category: 'engagement', kind: 'vague_word', replacement: null });
+  const items = [...ISSUES, NOTE].map((i) => ({ issue: i, rects: [rect] }));
+  const drawAll = (active: string[] = []) =>
+    render(<Underlines items={items} active={new Set(active)} fading={new Set()} drawing={new Set()} />).container;
+
+  it('errors solid in the Correctness colour, suggestions dotted and comment-only notes dashed in their family\u2019s', () => {
+    const lines = [...drawAll().querySelectorAll<HTMLElement>('.englint-underline')].map((el) => [el.dataset.family, el.dataset.line]);
+    expect(lines).toEqual([
+      ['correctness', 'solid'],
+      ['clarity', 'dotted'],
+      ['engagement', 'dotted'],
+      ['delivery', 'dotted'],
+      ['generic', 'dotted'],
+      ['engagement', 'dotted'],
+      ['clarity', 'dotted'],
+      ['engagement', 'dashed'],
+    ]);
+  });
+
+  it('a tint carries its family too', () => {
+    const tints = [...drawAll(['err', 'gen', 'note']).querySelectorAll<HTMLElement>('.englint-tint')].map((el) => el.dataset.family);
+    expect(tints).toEqual(['correctness', 'generic', 'engagement']);
+  });
+
+  it('a 2 px strip along the bottom of its text', () => {
+    const sheet = document.createElement('style');
+    sheet.textContent = readFileSync('src/content/overlay/overlay.css', 'utf8');
+    document.head.append(sheet);
+    try {
+      const u = draw().querySelector<HTMLElement>('.englint-underline')!;
+      expect(UNDERLINE_PX).toBe(2);
+      expect([u.style.top, getComputedStyle(u).height]).toEqual([`${rect.bottom - 2}px`, '2px']);
+    } finally {
+      sheet.remove();
+    }
   });
 });

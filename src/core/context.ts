@@ -9,13 +9,44 @@ const SPACE = /\s/;
 /** The character at i, or '' outside the string. */
 const at = (text: string, i: number) => text[i] ?? '';
 
-function paragraphBounds(text: string, start: number, end: number): { lo: number; hi: number } {
+/** The paragraph around [start, end), looked for at most `reach` characters out on each side. */
+function paragraphBounds(text: string, start: number, end: number, reach = Infinity): { lo: number; hi: number } {
   let lo = start;
-  while (lo > 0 && !BREAK.test(at(text, lo - 1))) lo--;
+  while (lo > 0 && start - lo < reach && !BREAK.test(at(text, lo - 1))) lo--;
   let hi = end;
-  while (hi < text.length && !BREAK.test(at(text, hi))) hi++;
+  while (hi < text.length && hi - end < reach && !BREAK.test(at(text, hi))) hi++;
   return { lo, hi };
 }
+
+const WORD_CHAR = /[\p{L}\p{N}\p{M}]/u;
+const APOSTROPHE = /['’]/;
+
+/** Whether the character at i belongs to a word: a letter, digit or mark, or an apostrophe between two of them ("don't"). */
+function inWord(text: string, i: number): boolean {
+  const c = at(text, i);
+  if (WORD_CHAR.test(c)) return true;
+  return APOSTROPHE.test(c) && WORD_CHAR.test(at(text, i - 1)) && WORD_CHAR.test(at(text, i + 1));
+}
+
+/** Whether offset i is between words: not with a word character on both sides of it. */
+export const atWordEdge = (text: string, i: number) => !(inWord(text, i - 1) && inWord(text, i));
+
+/**
+ * [start, end) grown to whole words: an edge inside a word moves out to that word's edge ("roble" in "problems" becomes
+ * "problems"), so a tool never sees, or replaces, part of a word. Spaces, punctuation and hyphens are word edges.
+ */
+export function snapToWords(text: string, start: number, end: number): { start: number; end: number } {
+  let s = start;
+  let e = end;
+  if (s < e) {
+    while (s > 0 && inWord(text, s - 1) && inWord(text, s)) s--;
+    while (e < text.length && inWord(text, e - 1) && inWord(text, e)) e++;
+  }
+  return { start: s, end: e };
+}
+
+/** Whether `text` is one word: word characters, with an apostrophe or hyphen only between two of them. */
+export const isSingleWord = (text: string) => /^[\p{L}\p{N}\p{M}]+(?:['’-][\p{L}\p{N}\p{M}]+)*$/u.test(text);
 
 /** Shrink [start, end) past edge whitespace; null if only whitespace is left. */
 export function trimRange(text: string, start: number, end: number): { start: number; end: number } | null {
@@ -28,7 +59,8 @@ export function trimRange(text: string, start: number, end: number): { start: nu
 
 /** Up to `max` characters each side of the range, inside its paragraph, cut at a word boundary. */
 export function contextAround(text: string, start: number, end: number, max = 300): { before: string; after: string } {
-  const { lo, hi } = paragraphBounds(text, start, end);
+  // A paragraph edge further out than max + 1 changes nothing below, so a long paragraph isn't scanned to its ends.
+  const { lo, hi } = paragraphBounds(text, start, end, max + 1);
   let before = text.slice(Math.max(lo, start - max), start);
   if (start - max > lo && before !== '' && !SPACE.test(at(text, start - max - 1)) && !SPACE.test(at(before, 0))) {
     const ws = before.search(/\s/);
@@ -72,7 +104,7 @@ export function sentenceAround(text: string, start: number, end: number): { star
 }
 
 /** `text` cut to at most `room` characters at a word boundary ('' when not even one word fits). */
-function cutAtWord(text: string, room: number): string {
+export function cutAtWord(text: string, room: number): string {
   if (room <= 0) return '';
   if (text.length <= room) return text;
   const head = text.slice(0, room);

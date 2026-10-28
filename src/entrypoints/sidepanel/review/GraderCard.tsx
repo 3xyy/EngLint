@@ -3,6 +3,7 @@ import { MAX_RUBRIC_CHARS } from '../../../core/review';
 import { costLabel, estimateCost, REVIEW_EXPECTED } from '../../../core/review-cost';
 import type { Grading } from '../../../core/review-schema';
 import { sendMessage } from '../../../shared/messages';
+import { Button } from '../../../shared/ui/controls';
 import { Quote } from '../Quote';
 import { REVIEW_COPY } from './copy';
 import type { Runs } from './runs';
@@ -38,9 +39,9 @@ export function GraderCard({
         onChange={(e) => onRubric(e.target.value)}
       />
       {rubric.length >= MAX_RUBRIC_CHARS && <p className="muted">{REVIEW_COPY.rubricCut}</p>}
-      <button type="button" className="btn" disabled={!canRun} onClick={() => void run()}>
+      <Button size="sm" className="review-run" disabled={!canRun} onClick={() => void run()}>
         {cost ? C.runWithCost(cost) : C.run}
-      </button>
+      </Button>
       {cost === null && <p className="muted">{REVIEW_COPY.costUnknown}</p>}
       {current?.busy && <p className="muted" role="status">{REVIEW_COPY.grading}</p>}
       <Problem run={current} spend={spend} />

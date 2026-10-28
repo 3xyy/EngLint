@@ -40,6 +40,11 @@ describe('readFieldSelection', () => {
     expect(await readFieldSelection(a)).toEqual({ start: 2, end: 5, text: 'big' });
   });
 
+  it('snaps a selection inside a word to the whole word: "roble" in "problems" is "problems"', async () => {
+    expect(await readFieldSelection(textarea('Our problems are big.', 5, 10))).toEqual({ start: 4, end: 12, text: 'problems' });
+    expect(await readFieldSelection(textarea('I has a cat', 3, 9))).toEqual({ start: 2, end: 11, text: 'has a cat' });
+  });
+
   it('is null for a collapsed selection', async () => {
     expect(await readFieldSelection(textarea('a big dog', 3, 3))).toBeNull();
   });

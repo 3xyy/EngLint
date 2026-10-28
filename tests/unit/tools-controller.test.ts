@@ -7,9 +7,11 @@ import {
   type ToolsRange,
   type ToolsView,
 } from '../../src/content/tools/tools-controller';
+import { countWords } from '../../src/core/doc-stats';
 import type { ToolRequest } from '../../src/core/presets';
 import type { Mode } from '../../src/core/types';
-import type { FollowUpResponse, RewriteResponse, SynonymsResponse, sendMessage } from '../../src/shared/messages';
+import type { WordLimitCut } from '../../src/core/word-limit';
+import type { FollowUpResponse, RewriteResponse, SynonymsResponse, WordLimitResponse, sendMessage } from '../../src/shared/messages';
 
 // The controller against a fake field (adapter with a text the test can change), a fake overlay that
 // records every showTools/flash call, and a fake send whose answers the test settles in any order.
@@ -66,13 +68,13 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-type Sent = { type: 'rewrite' | 'synonyms' | 'followUp'; data: any; reply: Deferred<any> };
+type Sent = { type: 'rewrite' | 'synonyms' | 'followUp' | 'wordLimit'; data: any; reply: Deferred<any> };
 
 function setup(text: string, mode: Mode = 'standard') {
   const field = fakeField(text);
   const shows: { anchor: DOMRect | null; view: ToolsView | null; handlers: ToolsHandlers }[] = [];
   const overlay = {
-    showTools: vi.fn((anchor: DOMRect | null, view: ToolsView | null, handlers: ToolsHandlers) => {
+    showTools: vi.fn((anchor: DOMRect | null, view: ToolsView | null, handlers: ToolsHandlers, _title?: string) => {
       shows.push({ anchor, view, handlers });
     }),
     flash: vi.fn(),
@@ -99,7 +101,7 @@ function setup(text: string, mode: Mode = 'standard') {
 /** Lets every pending promise chain run (the controller awaits the adapter and send). */
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-const ok = (r: Partial<RewriteResponse & SynonymsResponse & FollowUpResponse>) => ({ status: 'ok' as const, ...r });
+const ok = (r: Partial<RewriteResponse & SynonymsResponse & FollowUpResponse & WordLimitResponse>) => ({ status: 'ok' as const, ...r });
 
 const TEXT = 'First line.\nI has a cat and a dog. We play.';
 const SHORTER: ToolRequest = { kind: 'preset', presetId: 'shorter' };
@@ -152,14 +154,30 @@ describe('open', () => {
     expect(t.last()!.anchor).toEqual(new DOMRect(10, 20, 170, 32));
   });
 
-  it('a selection over the limit shows the notice and never sends', async () => {
+  it('a selection over 2,000 characters opens the bar with only the word-limit tool on, and a rewrite or synonyms pick (the menu, a stale bar) shows the notice and never sends', async () => {
     const t = setup(TEXT);
     t.tools.open(t.f, { ...rangeOf(TEXT, 'a cat'), tooLong: true });
     await settle();
-    expect(t.view()).toEqual({ phase: 'error', text: 'Select up to about 2,000 characters.' });
+    expect(t.view()).toEqual({ phase: 'menu', mode: 'standard', tooLong: 'rewrites' });
     t.handlers().pick(SHORTER);
+    await settle();
+    expect(t.view()).toEqual({ phase: 'error', text: 'Select up to about 2,000 characters.' });
+    t.handlers().pick({ kind: 'synonyms' });
     t.handlers().retry();
     await settle();
+    expect(t.view()).toEqual({ phase: 'error', text: 'Select up to about 2,000 characters.' });
+    expect(t.send).not.toHaveBeenCalled();
+  });
+
+  it('a selection over 5,000 characters shows the notice at once, opened with a rewrite too', async () => {
+    const long = 'word '.repeat(1100).trim();
+    const t = setup(long);
+    t.tools.open(t.f, { start: 0, end: long.length, text: long, tooLong: true });
+    await settle();
+    expect(t.view()).toEqual({ phase: 'error', text: 'Select up to about 2,000 characters.' });
+    t.tools.open(t.f, { start: 0, end: long.length, text: long, tooLong: true }, SHORTER);
+    await settle();
+    expect(t.view()).toEqual({ phase: 'error', text: 'Select up to about 2,000 characters.' });
     expect(t.send).not.toHaveBeenCalled();
   });
 
@@ -172,7 +190,7 @@ describe('open', () => {
     expect(t.view()).toEqual({ phase: 'loading', label: 'Rewriting…' });
   });
 
-  it("'custom-prompt' (the menu's Custom instruction…) shows the menu with the custom input focused, and sends nothing", async () => {
+  it("'custom-prompt' (the menu's Ask anything…) shows the bar with its box focused, and sends nothing", async () => {
     const t = setup(TEXT);
     t.tools.open(t.f, rangeOf(TEXT, 'a cat'), 'custom-prompt');
     await settle();
@@ -188,6 +206,74 @@ describe('menu view', () => {
   it('carries the page mode, so the menu lists only that mode\'s presets', async () => {
     const t = await openOnCat('essay');
     expect(t.view()).toEqual({ phase: 'menu', mode: 'essay' });
+  });
+
+  it('says when the selection is one word, so the bar shows Synonyms as its own button', async () => {
+    const t = setup(TEXT);
+    t.tools.open(t.f, rangeOf(TEXT, 'cat'));
+    await settle();
+    expect(t.view()).toEqual({ phase: 'menu', mode: 'standard', singleWord: true });
+    t.tools.open(t.f, rangeOf(TEXT, 'cat'), 'custom-prompt');
+    await settle();
+    expect(t.view()).toEqual({ phase: 'menu', mode: 'standard', singleWord: true, focus: 'custom' });
+  });
+});
+
+describe('the results header', () => {
+  const titles = (t: ReturnType<typeof setup>) => t.overlay.showTools.mock.calls.map((c) => c[3]);
+
+  it('names the action from its first view on, and a follow-up keeps it', async () => {
+    const t = await openOnCat();
+    expect(titles(t)).toEqual([undefined]); // the bar: no header
+    t.handlers().pick({ kind: 'preset', presetId: 'formal' });
+    await settle();
+    expect(titles(t).at(-1)).toBe('Tone · Formal'); // loading
+    t.sent[0]!.reply.resolve(ok({ variants: VARIANTS }));
+    await settle();
+    expect(t.view()!.phase).toBe('variants');
+    expect(titles(t).at(-1)).toBe('Tone · Formal');
+    t.handlers().ask('less formal');
+    await settle();
+    t.sent[1]!.reply.resolve(ok({ message: 'm', variants: ['x1'] }));
+    await settle();
+    expect(t.view()!.phase).toBe('answer');
+    expect(titles(t).at(-1)).toBe('Tone · Formal');
+  });
+
+  it('is the newest pick, Synonyms, or a custom instruction in quotes', async () => {
+    const t = await openOnCat();
+    t.handlers().pick({ kind: 'synonyms' });
+    await settle();
+    expect(titles(t).at(-1)).toBe('Synonyms');
+    t.handlers().pick({ kind: 'custom', instruction: 'make it vivid' });
+    await settle();
+    expect(titles(t).at(-1)).toBe('“make it vivid”');
+    t.handlers().pick(SHORTER);
+    await settle();
+    expect(titles(t).at(-1)).toBe('Shorten');
+  });
+});
+
+describe('a snapped selection', () => {
+  it('"roble" in "problems" was read as "problems": the request and the apply both use the whole word', async () => {
+    const text = 'Our problems are big.';
+    const t = setup(text);
+    const a = document.createElement('textarea');
+    a.value = text;
+    document.body.append(a);
+    a.setSelectionRange(5, 10); // "roble"
+    const { readFieldSelection } = await import('../../src/content/tools/selection');
+    const { createTextareaAdapter } = await import('../../src/content/adapters/textarea');
+    const range = (await readFieldSelection(createTextareaAdapter(a, 'f2')))!;
+    t.tools.open(t.f, range, SHORTER);
+    await settle();
+    expect(t.sent[0]!.data.text).toBe('problems');
+    t.sent[0]!.reply.resolve(ok({ variants: ['issues', 'troubles', 'worries'] }));
+    await settle();
+    t.handlers().apply('issues');
+    await settle();
+    expect(t.adapter.replace).toHaveBeenCalledWith(4, 12, 'issues');
+    expect(t.state.text).toBe('Our issues are big.');
   });
 });
 
@@ -240,7 +326,7 @@ describe('rewrite', () => {
     expect(t.view()).toEqual({ phase: 'variants', variants: VARIANTS, original: 'a cat' });
   });
 
-  it.each(['confident', 'friendlier', 'casual', 'simpler'] as const)('Essay: the %s tone preset sends the critique stage first', async (presetId) => {
+  it.each(['rewrite', 'confident', 'friendlier', 'casual'] as const)('Essay: the %s preset sends the critique stage first', async (presetId) => {
     const t = await openOnCat('essay');
     const request: ToolRequest = { kind: 'preset', presetId };
     t.handlers().pick(request);
@@ -657,7 +743,7 @@ describe('late answers', () => {
     const t = await openOnCat();
     t.handlers().pick(SHORTER);
     await settle();
-    t.handlers().pick({ kind: 'preset', presetId: 'clearer' });
+    t.handlers().pick({ kind: 'preset', presetId: 'formal' });
     await settle();
     t.sent[1]!.reply.resolve(ok({ variants: ['b1', 'b2', 'b3'] }));
     await settle();
@@ -1064,5 +1150,278 @@ describe('Sound like me', () => {
       await settle();
       expect(t.adapter.replace).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('fit a word limit', () => {
+  // The selection: 14 words, a paragraph of its own but for the last sentence.
+  const SEL = 'In order to win the final, we really practiced every single day after school.';
+  const FIELD = `Last spring.\n${SEL} We won.`;
+  const AT = FIELD.indexOf(SEL);
+  const LIMIT: ToolRequest = { kind: 'wordLimit' };
+  function cutOf(original: string, replacement: string, over: Partial<WordLimitCut> = {}, text = SEL): WordLimitCut {
+    const start = text.indexOf(original);
+    return { start, end: start + original.length, original, replacement, why: 'filler', saves: countWords(original) - countWords(replacement), changesFacts: false, ...over };
+  }
+  // Saves 2, 1, 2 and 2; the last changes a fact (as the cleaning would flag it).
+  const CUTS = [cutOf('In order to', 'To'), cutOf('really', ''), cutOf('every single day', 'daily'), cutOf('after school', '', { changesFacts: true })];
+  const VERSION = 'To win the final, we practiced daily.';
+
+  async function picker(mode: Mode = 'standard') {
+    const t = setup(FIELD, mode);
+    t.tools.open(t.f, rangeOf(FIELD, SEL));
+    await settle();
+    t.handlers().pick(LIMIT);
+    await settle();
+    return t;
+  }
+  async function cutsShown(target = 11, cuts = CUTS, version: string | null = VERSION) {
+    const t = await picker();
+    t.handlers().findCuts(target);
+    await settle();
+    t.sent[0]!.reply.resolve(ok({ cuts, version }));
+    await settle();
+    return t;
+  }
+  const title = (t: ReturnType<typeof setup>) => t.overlay.showTools.mock.calls.at(-1)![3];
+
+  it('picking it shows the target picker with the selection\'s words, counted locally, under "Fit a word limit"; nothing is sent', async () => {
+    const t = await picker();
+    expect(t.view()).toEqual({ phase: 'wordLimitPick', words: 14 });
+    expect(title(t)).toBe('Fit a word limit');
+    expect(t.send).not.toHaveBeenCalled();
+    const fromMenu = setup(FIELD);
+    fromMenu.tools.open(fromMenu.f, rangeOf(FIELD, SEL), LIMIT); // the right-click menu
+    await settle();
+    expect(fromMenu.view()).toEqual({ phase: 'wordLimitPick', words: 14 });
+  });
+
+  it('Find cuts sends the selection, its context and the target, in Essay with no critique first, then shows the cuts', async () => {
+    const t = await picker('essay');
+    t.handlers().findCuts(11);
+    await settle();
+    expect(t.sent.map((x) => x.type)).toEqual(['wordLimit']);
+    expect(t.sent[0]!.data).toEqual({ host: 'example.com', mode: 'essay', text: SEL, before: '', after: ' We won.', target: 11 });
+    expect(t.view()).toEqual({ phase: 'loading', label: 'Finding cuts…' });
+    expect(title(t)).toBe('Fit a word limit');
+    t.sent[0]!.reply.resolve(ok({ cuts: CUTS, version: VERSION }));
+    await settle();
+    // Picked in order until 11 words: "In order to" (12), then "really" (11).
+    expect(t.view()).toEqual({ phase: 'wordLimit', original: SEL, words: 14, target: 11, cuts: CUTS, selected: [true, true, false, false], version: VERSION, versionChangesFacts: false, more: true });
+  });
+
+  it('a cut that changes a fact is never picked for the writer', async () => {
+    const t = await cutsShown(3);
+    expect((t.view() as Extract<ToolsView, { phase: 'wordLimit' }>).selected).toEqual([true, true, true, false]);
+  });
+
+  it('a target that is not a whole number from 1 to one under the words sends nothing', async () => {
+    const t = await picker();
+    for (const target of [14, 0, 10.5, Number.NaN]) t.handlers().findCuts(target);
+    await settle();
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.view()).toEqual({ phase: 'wordLimitPick', words: 14 });
+  });
+
+  it('Apply selected replaces the selection once with the picked cuts applied, then closes, selects the new text and flashes it', async () => {
+    const t = await cutsShown();
+    t.handlers().applySelected([true, true, true, false]);
+    t.handlers().applySelected([true, true, true, false]); // a double click
+    await settle();
+    const next = 'To win the final, we practiced daily after school.';
+    expect(t.adapter.replace).toHaveBeenCalledTimes(1);
+    expect(t.adapter.replace).toHaveBeenCalledWith(AT, AT + SEL.length, next);
+    expect(t.state.text).toBe(`Last spring.\n${next} We won.`);
+    expect(t.view()).toBeNull();
+    expect(t.adapter.select).toHaveBeenCalledWith(AT, AT + next.length);
+    expect(t.overlay.flash).toHaveBeenCalledWith('f1', [RECT]);
+  });
+
+  it('Apply selected with nothing picked does nothing; after the text changed it replaces nothing and says so', async () => {
+    const t = await cutsShown();
+    t.handlers().applySelected([false, false, false, false]);
+    await settle();
+    expect(t.adapter.replace).not.toHaveBeenCalled();
+    t.state.text = `Oh ${FIELD}`;
+    t.handlers().applySelected([true, false, false, false]);
+    await settle();
+    expect(t.adapter.replace).not.toHaveBeenCalled();
+    expect(t.view()).toEqual({ phase: 'error', text: 'The text changed. Select it again.' });
+  });
+
+  it('Use full version applies the version through the same checked path', async () => {
+    const t = await cutsShown();
+    t.handlers().apply(VERSION);
+    await settle();
+    expect(t.adapter.replace).toHaveBeenCalledTimes(1);
+    expect(t.adapter.replace).toHaveBeenCalledWith(AT, AT + SEL.length, VERSION);
+  });
+
+  it('a version that changes a fact is shown flagged, and still applies: the writer chose it', async () => {
+    const t = await picker();
+    t.handlers().findCuts(11);
+    await settle();
+    t.sent[0]!.reply.resolve(ok({ cuts: CUTS, version: VERSION, versionChangesFacts: true })); // the background's cleaning flagged it
+    await settle();
+    expect(t.view()).toMatchObject({ phase: 'wordLimit', version: VERSION, versionChangesFacts: true });
+    t.handlers().apply(VERSION);
+    await settle();
+    expect(t.adapter.replace).toHaveBeenCalledWith(AT, AT + SEL.length, VERSION);
+  });
+
+  it('Find more cuts sends the cuts shown and keeps the writer\'s picks; new cuts are added, and picked only while over the target', async () => {
+    const t = await cutsShown(10, CUTS.slice(0, 2));
+    expect((t.view() as Extract<ToolsView, { phase: 'wordLimit' }>).selected).toEqual([true, true]); // 11: still over 10
+    t.handlers().moreCuts([true, false]); // the writer unpicked "really"
+    await settle();
+    expect(t.sent[1]!.type).toBe('wordLimit');
+    expect(t.sent[1]!.data).toEqual({
+      ...t.sent[0]!.data,
+      shown: CUTS.slice(0, 2).map(({ start, end, original, replacement }) => ({ start, end, original, replacement })),
+    });
+    expect(t.view()).toEqual({ phase: 'loading', label: 'Finding more cuts…' });
+    const more = [cutOf('every single day', 'daily'), cutOf('after school', '')];
+    t.sent[1]!.reply.resolve(ok({ cuts: more, version: 'Another version, unused.' }));
+    await settle();
+    // From 12 words (only "In order to"), "every single day" brings it to 10: the last new one stays unpicked.
+    expect(t.view()).toEqual({ phase: 'wordLimit', original: SEL, words: 14, target: 10, cuts: [...CUTS.slice(0, 2), ...more], selected: [true, false, true, false], version: VERSION, versionChangesFacts: false, more: true });
+  });
+
+  it('a search for more that finds nothing new says so, and Find more cuts is not offered again', async () => {
+    const t = await cutsShown(11, CUTS.slice(0, 2), null);
+    t.handlers().moreCuts([true, true]);
+    await settle();
+    t.sent[1]!.reply.resolve(ok({ cuts: [], version: VERSION }));
+    await settle();
+    expect(t.view()).toEqual({ phase: 'wordLimit', original: SEL, words: 14, target: 11, cuts: CUTS.slice(0, 2), selected: [true, true], version: VERSION, versionChangesFacts: false, more: false, noneNew: true });
+  });
+
+  it('Find more cuts is offered while fewer than 36 cuts are shown', async () => {
+    const many = Array.from({ length: 40 }, (_, i) => `w${i}`).join(' ');
+    const t = setup(many);
+    t.tools.open(t.f, { start: 0, end: many.length, text: many });
+    await settle();
+    t.handlers().pick(LIMIT);
+    await settle();
+    t.handlers().findCuts(5);
+    await settle();
+    const cuts = (n: number) => Array.from({ length: n }, (_, i) => cutOf(`w${i}`, '', {}, many));
+    t.sent[0]!.reply.resolve(ok({ cuts: cuts(35), version: null }));
+    await settle();
+    expect((t.view() as Extract<ToolsView, { phase: 'wordLimit' }>).more).toBe(true);
+    t.handlers().moreCuts(Array(35).fill(true));
+    await settle();
+    t.sent[1]!.reply.resolve(ok({ cuts: [cutOf('w35', '', {}, many)], version: null }));
+    await settle();
+    expect((t.view() as Extract<ToolsView, { phase: 'wordLimit' }>).more).toBe(false);
+  });
+
+  it('a failed search offers Retry, which sends the same target again; a failed search for more keeps the cuts and the picks, its status under them, and Find more cuts sends the same shown cuts again', async () => {
+    const t = await picker();
+    t.handlers().findCuts(11);
+    await settle();
+    t.sent[0]!.reply.resolve({ status: 'overloaded' });
+    await settle();
+    expect(t.view()).toMatchObject({ phase: 'error', retry: true });
+    t.handlers().retry();
+    await settle();
+    expect(t.sent[1]!.data).toEqual(t.sent[0]!.data);
+    t.sent[1]!.reply.resolve(ok({ cuts: CUTS.slice(0, 2), version: null }));
+    await settle();
+    t.handlers().moreCuts([false, true]);
+    await settle();
+    t.sent[2]!.reply.resolve({ status: 'bad_response' });
+    await settle();
+    expect(t.view()).toEqual({
+      phase: 'wordLimit',
+      original: SEL,
+      words: 14,
+      target: 11,
+      cuts: CUTS.slice(0, 2),
+      selected: [false, true], // the picks made before the failure
+      version: null,
+      versionChangesFacts: false,
+      more: true,
+      error: "Couldn't get a usable answer from Claude. Try again.",
+    });
+    t.handlers().moreCuts([false, true]);
+    await settle();
+    expect(t.sent[3]!.data).toEqual(t.sent[2]!.data);
+    t.sent[3]!.reply.resolve(ok({ cuts: [cutOf('every single day', 'daily')], version: null }));
+    await settle();
+    expect(t.view()).toMatchObject({ selected: [false, true, true], more: true });
+    expect(t.view()).not.toHaveProperty('error');
+  });
+
+  it('a search for more stopped by something Retry can\'t fix (the cap) keeps the cuts with its status, and offers no Find more cuts', async () => {
+    const t = await cutsShown(11, CUTS.slice(0, 2));
+    t.handlers().moreCuts([true, false]);
+    await settle();
+    t.sent[1]!.reply.resolve({ status: 'paused_cap' });
+    await settle();
+    expect(t.view()).toMatchObject({ phase: 'wordLimit', cuts: CUTS.slice(0, 2), selected: [true, false], more: false, error: expect.stringMatching(/^Monthly limit reached\./) });
+    t.handlers().applySelected([true, false]); // what was found still applies
+    await settle();
+    expect(t.adapter.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it('a search for more that never reached the background keeps the cuts too', async () => {
+    const t = await cutsShown(11, CUTS.slice(0, 2));
+    t.send.mockImplementationOnce(async () => {
+      throw new Error('Extension context invalidated.');
+    });
+    t.handlers().moreCuts([true, true]);
+    await settle();
+    expect(t.view()).toMatchObject({ phase: 'wordLimit', cuts: CUTS.slice(0, 2), selected: [true, true], more: true, error: expect.any(String) });
+  });
+
+  it('the bar the popover shows (the shortcut) for a selection over 2,000 characters says only Fit a word limit takes it', async () => {
+    const mid = 'word '.repeat(500).trim(); // 2,499 characters
+    const t = setup(mid);
+    t.tools.open(t.f, { start: 0, end: mid.length, text: mid, tooLong: true });
+    await settle();
+    expect(t.view()).toEqual({ phase: 'menu', mode: 'standard', tooLong: 'rewrites' });
+    const short = setup(FIELD);
+    short.tools.open(short.f, rangeOf(FIELD, SEL));
+    await settle();
+    expect(short.view()).toEqual({ phase: 'menu', mode: 'standard' });
+  });
+
+  it('takes a selection over 2,000 characters; over 5,000 it says so and sends nothing', async () => {
+    const mid = 'word '.repeat(500).trim(); // 2,499 characters, 500 words
+    const t = setup(mid);
+    t.tools.open(t.f, { start: 0, end: mid.length, text: mid, tooLong: true }, LIMIT);
+    await settle();
+    expect(t.view()).toEqual({ phase: 'wordLimitPick', words: 500 });
+    t.handlers().findCuts(400);
+    await settle();
+    expect(t.sent[0]!.data).toMatchObject({ text: mid, target: 400 });
+
+    const long = 'word '.repeat(1100).trim(); // 5,499 characters
+    const u = setup(long);
+    u.tools.open(u.f, { start: 0, end: long.length, text: long, tooLong: true }, LIMIT);
+    await settle();
+    expect(u.view()).toEqual({ phase: 'error', text: 'Select up to about 5,000 characters to fit a word limit.' });
+    u.handlers().findCuts(400);
+    await settle();
+    expect(u.send).not.toHaveBeenCalled();
+  });
+
+  it('one word has nothing to fit (the right-click menu offers it anyway): it says so and sends nothing', async () => {
+    const t = setup(TEXT);
+    t.tools.open(t.f, rangeOf(TEXT, 'cat'), LIMIT);
+    await settle();
+    expect(t.view()).toEqual({ phase: 'error', text: 'Select more than one word to fit a word limit.' });
+    expect(t.send).not.toHaveBeenCalled();
+  });
+
+  it('an answer after close is ignored', async () => {
+    const t = await picker();
+    t.handlers().findCuts(11);
+    await settle();
+    t.tools.close();
+    t.sent[0]!.reply.resolve(ok({ cuts: CUTS, version: VERSION }));
+    await settle();
+    expect(t.view()).toBeNull();
   });
 });

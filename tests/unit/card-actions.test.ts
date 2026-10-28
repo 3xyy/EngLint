@@ -28,11 +28,11 @@ describe('cardAction: what the card offers beside Dismiss', () => {
     expect(cardAction({ original: 'dont', severity: 'error', category: 'punctuation', kind: 'contraction' }, 'casual')).toBeNull();
   });
 
-  it('"Add to dictionary" for a spelling error on one word, edge punctuation and spaces aside, in any mode', () => {
-    expect(cardAction(spelling('Kubernetes'), 'standard')?.label).toBe('Add to dictionary');
-    expect(cardAction(spelling(' Kubernetes, '), 'essay')?.label).toBe('Add to dictionary');
-    expect(cardAction(spelling('O’Brien'), 'casual')?.label).toBe('Add to dictionary');
-    expect(cardAction(spelling('e-mail'), 'standard')?.label).toBe('Add to dictionary');
+  it('"Add “{word}” to dictionary" for a spelling error on one word, edge punctuation and spaces aside, in any mode', () => {
+    expect(cardAction(spelling('Kubernetes'), 'standard')?.label).toBe('Add “Kubernetes” to dictionary');
+    expect(cardAction(spelling(' Kubernetes, '), 'essay')?.label).toBe('Add “Kubernetes” to dictionary');
+    expect(cardAction(spelling('O’Brien'), 'casual')?.label).toBe('Add “O’Brien” to dictionary');
+    expect(cardAction(spelling('e-mail'), 'standard')?.label).toBe('Add “e-mail” to dictionary');
   });
 
   it('nothing for a spelling error on two words or on punctuation alone, or a spelling-category suggestion', () => {

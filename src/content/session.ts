@@ -72,6 +72,7 @@ export class FieldSession {
   private tellCache = new Map<string, SourcedIssue[]>(); // `${mode}:${hash}` -> tells, oldest first
   private dismissed = new Set<string>();
   private current: LocatedIssue[] = [];
+  private currentText = ''; // the text `current` was located in
   private lastStatus: CheckStatus = 'ok';
   private timer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -104,6 +105,11 @@ export class FieldSession {
 
   issues(): LocatedIssue[] {
     return this.current;
+  }
+
+  /** The text the issues were located in ('' before the first read): their offsets slice it. */
+  text(): string {
+    return this.currentText;
   }
 
   status(): CheckStatus {
@@ -484,10 +490,12 @@ export class FieldSession {
   private async refresh(emit: boolean | 'changed' = true): Promise<void> {
     if (emit === true) this.emitOwed = true;
     const seq = ++this.refreshSeq;
-    const next = await this.locateAll(await this.readText());
+    const text = await this.readText();
+    const next = await this.locateAll(text);
     if (this.disposed || seq !== this.refreshSeq) return; // a newer read supersedes this one
     const changed = !sameShown(this.current, next);
     this.current = next;
+    this.currentText = text;
     if (this.emitOwed || (emit === 'changed' && changed)) {
       this.emitOwed = false;
       this.emit();
@@ -497,8 +505,12 @@ export class FieldSession {
   /** Read the text now and locate from that read; becomes `current` and supersedes older refreshes. */
   private async freshLocate(): Promise<LocatedIssue[]> {
     const seq = ++this.refreshSeq;
-    const located = await this.locateAll(await this.adapter.getText());
-    if (!this.disposed && seq === this.refreshSeq) this.current = located;
+    const text = await this.adapter.getText();
+    const located = await this.locateAll(text);
+    if (!this.disposed && seq === this.refreshSeq) {
+      this.current = located;
+      this.currentText = text;
+    }
     return located;
   }
 

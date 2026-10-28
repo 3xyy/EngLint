@@ -18,6 +18,8 @@ import { useKeyStatus } from '../use-key-status';
 import { useProviderInfo } from '../use-provider-info';
 import { useSetting } from '../use-setting';
 import { useSpend } from '../use-spend';
+import { Button, Pill, Switch } from './controls';
+import { SettingsCard } from './SettingsCard';
 
 type Choice = 'anthropic' | PresetId;
 type Note = { text: string; link?: { href: string; label: string } | null };
@@ -33,7 +35,7 @@ const choiceOf = (c: ProviderConfig): Choice => (c.active === 'compatible' && c.
  * effect at once; any other provider takes effect on Save, which also asks Chrome for access to its endpoint.
  * Switching never deletes a key or the other provider's settings.
  */
-export function ProviderSection() {
+export function ProviderSection({ id }: { id?: string }) {
   const saved = useSetting(providerItem);
   const [choice, setChoice] = useState<Choice | null>(null);
   const selectId = useId();
@@ -49,10 +51,9 @@ export function ProviderSection() {
   }
 
   return (
-    <section aria-label="AI provider">
-      <h2>AI provider</h2>
+    <SettingsCard id={id} title="AI provider" description="Which AI checks your writing, and the key it uses.">
       {/* Labelled by id, not by wrapping: a select inside its label would add its option to the label's name. */}
-      <div className="row" style={{ justifyContent: 'flex-start' }}>
+      <div className="field provider-pick">
         <label htmlFor={selectId}>Provider</label>
         <select id={selectId} value={current} onChange={(e) => pick(e.target.value as Choice)}>
           <option value="anthropic">Claude (recommended)</option>
@@ -63,9 +64,9 @@ export function ProviderSection() {
           ))}
         </select>
       </div>
-      <p className="muted">EngLint is tuned and tested on Claude. Other providers work, but their suggestions haven't been measured.</p>
+      <p className="muted field-note">EngLint is tuned and tested on Claude. Other providers work, but their suggestions haven't been measured.</p>
       {current === 'anthropic' ? <ClaudeKey /> : <CompatibleForm key={current} preset={current} saved={saved} />}
-    </section>
+    </SettingsCard>
   );
 }
 
@@ -123,7 +124,7 @@ function ClaudeKey() {
   }
 
   return (
-    <div style={noKey ? { border: '2px solid #1a73e8', borderRadius: 8, padding: '0 16px 8px' } : undefined}>
+    <div className={noKey ? 'key-box key-box-new' : 'key-box'}>
       <h3>Claude API key</h3>
       {noKey && (
         <ol>
@@ -138,10 +139,8 @@ function ClaudeKey() {
           <li>Click Test key</li>
         </ol>
       )}
-      <p className="muted">
-        {keyState?.saved ? (keyState.last4 ? `Key saved (ends in …${keyState.last4})` : 'Key saved') : 'No key saved yet.'}
-      </p>
-      <div className="row" style={{ justifyContent: 'flex-start' }}>
+      <KeyState state={keyState} />
+      <div className="key-row">
         <input
           ref={inputRef}
           type="password"
@@ -151,18 +150,17 @@ function ClaudeKey() {
           placeholder="sk-ant-…"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          style={{ width: 320 }}
         />
-        <button type="button" className="btn" onClick={() => void save()} disabled={!draft.trim()}>
+        <Button variant="primary" onClick={() => void save()} disabled={!draft.trim()}>
           Save
-        </button>
-        <button type="button" className="btn" onClick={() => void test()} disabled={busy}>
+        </Button>
+        <Button onClick={() => void test()} disabled={busy}>
           Test key
-        </button>
+        </Button>
         {keyState?.saved && (
-          <button type="button" className="btn" onClick={() => void remove()}>
+          <Button variant="ghost" onClick={() => void remove()}>
             Remove key
-          </button>
+          </Button>
         )}
       </div>
       <Result note={result} />
@@ -170,10 +168,21 @@ function ClaudeKey() {
   );
 }
 
+/** Whether a key is saved, as a pill: "Key saved (ends in …1234)" or "No key saved yet.". */
+function KeyState({ state }: { state: { saved: boolean; last4: string | null } | null }) {
+  return (
+    <p className="key-state">
+      <Pill tone={state?.saved ? 'ok' : 'neutral'} dot>
+        {state?.saved ? (state.last4 ? `Key saved (ends in …${state.last4})` : 'Key saved') : 'No key saved yet.'}
+      </Pill>
+    </p>
+  );
+}
+
 function Result({ note }: { note: Note | null }) {
   if (!note) return null;
   return (
-    <p role="status">
+    <p role="status" className="result">
       {note.text}
       {note.link && (
         <>
@@ -378,14 +387,12 @@ function CompatibleForm({ preset, saved }: { preset: PresetId; saved: ProviderCo
               onChange={(e) => setKeyDraft(e.target.value)}
             />
           </label>
-          <div className="row" style={{ justifyContent: 'flex-start', marginTop: -4 }}>
-            <span className="muted">
-              {keyState?.saved ? (keyState.last4 ? `Key saved (ends in …${keyState.last4})` : 'Key saved') : 'No key saved yet.'}
-            </span>
+          <div className="key-saved">
+            <KeyState state={keyState} />
             {keyState?.saved && (
-              <button type="button" className="btn" onClick={() => void removeKey()}>
+              <Button variant="ghost" size="sm" onClick={() => void removeKey()}>
                 Remove key
-              </button>
+              </Button>
             )}
           </div>
         </>
@@ -411,9 +418,9 @@ function CompatibleForm({ preset, saved }: { preset: PresetId; saved: ProviderCo
         </p>
       )}
       {custom && (
-        <label className="row" style={{ justifyContent: 'flex-start', gap: 8 }}>
-          <input type="checkbox" checked={jsonSchema} onChange={(e) => setJsonSchema(e.target.checked)} />
-          <span>This endpoint supports JSON schema</span>
+        <label className="setting">
+          <span className="setting-name">This endpoint supports JSON schema</span>
+          <Switch aria-label="This endpoint supports JSON schema" checked={jsonSchema} onChange={setJsonSchema} />
         </label>
       )}
 
@@ -433,13 +440,13 @@ function CompatibleForm({ preset, saved }: { preset: PresetId; saved: ProviderCo
         </>
       )}
 
-      <div className="row" style={{ justifyContent: 'flex-start' }}>
-        <button type="button" className="btn primary" onClick={() => save()} disabled={busy}>
+      <div className="actions">
+        <Button variant="primary" onClick={() => save()} disabled={busy}>
           {firstButton}
-        </button>
-        <button type="button" className="btn" onClick={() => save(test)} disabled={busy}>
+        </Button>
+        <Button onClick={() => save(test)} disabled={busy}>
           Test
-        </button>
+        </Button>
       </div>
       <Result note={note} />
     </div>

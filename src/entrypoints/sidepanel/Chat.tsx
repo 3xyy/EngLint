@@ -22,6 +22,7 @@ import {
 import type { CheckStatus, Mode } from '../../core/types';
 import { sendMessage, type ApplyEditResult } from '../../shared/messages';
 import { APPLY_FAILED, APPLY_FAILED_COPIED, toolStatusText, UNREACHABLE_FIELD } from '../../shared/status-text';
+import { Button } from '../../shared/ui/controls';
 import { useProviderInfo } from '../../shared/use-provider-info';
 import { CopyButton } from './Tools';
 
@@ -105,9 +106,9 @@ function EditRow({
         <Diff from={edit.original} to={edit.replacement} />
       </p>
       {apply ? (
-        <button type="button" className="btn chat-apply" aria-label={`Apply edit ${n}`} disabled={state !== undefined} onClick={onApply}>
+        <Button variant="primary" size="sm" className="chat-apply" aria-label={`Apply edit ${n}`} disabled={state !== undefined} onClick={onApply}>
           {state === 'applied' ? 'Applied' : 'Apply'}
-        </button>
+        </Button>
       ) : (
         <CopyButton text={edit.replacement} label={`Copy edit ${n}`} onCopied={onCopied} />
       )}
@@ -380,9 +381,9 @@ export function Chat({
   return (
     <section aria-label="Chat" className="chat">
       <div className="chat-head">
-        <button type="button" className="btn" disabled={key === null} onClick={newChat}>
+        <Button variant="ghost" size="sm" disabled={key === null} onClick={newChat}>
           {CHAT_COPY.newChat}
-        </button>
+        </Button>
       </div>
       <div className="chat-log" role="log">
         {key === null ? (

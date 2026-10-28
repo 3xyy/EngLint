@@ -235,13 +235,18 @@ describe('the panel tab bar', () => {
         activeFieldId: 'f-1',
         frames: { 'f-1': 3 },
         fields: {
-          'f-1': [issue('a', 'error', 'grammar', 'subject_verb_agreement'), issue('b', 'error', 'grammar', 'subject_verb_agreement'), issue('c', 'suggestion', 'clarity', 'wordy_phrase')],
+          'f-1': [
+            issue('a', 'error', 'grammar', 'subject_verb_agreement'),
+            issue('b', 'error', 'grammar', 'subject_verb_agreement'),
+            issue('c', 'suggestion', 'clarity', 'wordy_phrase'),
+            issue('d', 'suggestion', 'delivery', 'generic_phrasing'),
+          ],
         },
       },
     });
     window.history.replaceState(null, '', '/sidepanel.html?tabId=7');
     render(<App />);
-    await waitFor(() => expect(screen.getByText('Errors (2)')).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Correctness (2)' })).toBeTruthy());
     await act(() => new Promise((r) => setTimeout(r, 50)));
     expect(reads()).toBe(0);
     fireEvent.click(screen.getByRole('tab', { name: 'Review' }));
@@ -249,6 +254,7 @@ describe('the panel tab bar', () => {
     expect(vi.mocked(sendMessage)).toHaveBeenCalledWith('fieldText', { fieldId: 'f-1' }, { tabId: 7, frameId: 3 });
     expect(stat('Errors')).toBe('2');
     expect(stat('Clarity')).toBe('1');
+    expect(stat('Delivery')).toBe('1'); // generic phrasing counts as Delivery here, though the Issues list groups it apart
   });
 
   it('keys Review results on the page id of the tab state: a new page shows none', async () => {

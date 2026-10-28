@@ -31,13 +31,14 @@ describe('effectiveMode', () => {
   });
 });
 
-import { ESSAY_FAMILY_DEFAULTS, defaultFamilies, migrateFamilies } from '../../src/core/modes';
+import { ESSAY_FAMILY_DEFAULTS, defaultFamilies, migrateFamilies, migrateStandardEngagement } from '../../src/core/modes';
 
 const ALL_OFF = { clarity: false, engagement: false, delivery: false, generic: false };
-// Defaults (lc-6): a toggle under 0.9 precision with the defaults is off: generic in Essay and delivery in Standard
-// (lc-5 rounds), engagement in Standard (0.88). Clarity is on in both modes by choice, though the last run measured it
-// just under 0.9 (0.895 Essay, 0.875 Standard); generic is off in Standard by choice.
-const STANDARD = { clarity: true, engagement: false, delivery: false, generic: false };
+// Defaults: a toggle under 0.9 precision with the defaults is off: generic in Essay and delivery in Standard (lc-5
+// rounds). Clarity is on in both modes by choice, though a run measured it just under 0.9 (0.895 Essay, 0.875
+// Standard); engagement is on in Standard by choice (0.88 at lc-6), for its word-choice suggestions; generic is off in
+// Standard by choice.
+const STANDARD = { clarity: true, engagement: true, delivery: false, generic: false };
 const ESSAY = { clarity: true, engagement: true, delivery: true, generic: false };
 
 describe('defaultFamilies', () => {
@@ -75,5 +76,33 @@ describe('migrateFamilies', () => {
   });
   it('casual stays off even if the old clarity value was on', () => {
     expect(migrateFamilies({ essay: true, standard: true, casual: true }).casual).toEqual(ALL_OFF);
+  });
+});
+
+describe('migrateStandardEngagement', () => {
+  const stored = (essay: boolean, standard: boolean) => ({
+    essay: { ...ESSAY, engagement: essay },
+    standard: { clarity: false, engagement: standard, delivery: true, generic: false },
+    casual: ALL_OFF,
+  });
+
+  it('Essay on with Standard off (the old default, which the switches never write) turns Standard on', () => {
+    expect(migrateStandardEngagement(stored(true, false))).toEqual(stored(true, true));
+  });
+  it('a writer who turned Engagement off (off in both) keeps it off', () => {
+    expect(migrateStandardEngagement(stored(false, false))).toEqual(stored(false, false));
+  });
+  it('leaves every other combination and every other toggle as stored', () => {
+    expect(migrateStandardEngagement(stored(true, true))).toEqual(stored(true, true));
+    expect(migrateStandardEngagement(stored(false, true))).toEqual(stored(false, true));
+  });
+  it('does not change the value it is given', () => {
+    const old = stored(true, false);
+    migrateStandardEngagement(old);
+    expect(old).toEqual(stored(true, false));
+  });
+  it('a value missing a mode is returned as is', () => {
+    const partial = { essay: ESSAY } as unknown as Parameters<typeof migrateStandardEngagement>[0];
+    expect(migrateStandardEngagement(partial)).toEqual({ essay: ESSAY });
   });
 });

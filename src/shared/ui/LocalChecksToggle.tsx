@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { useSetting } from '../use-setting';
 import { localChecksItem } from '../settings';
+import { Switch } from './controls';
 
 export const LOCAL_CHECKS_HELP = "Underlines from EngLint's built-in checker appear as you type and work without the API.";
 
@@ -10,19 +11,14 @@ export function LocalChecksToggle() {
   const helpId = useId();
   if (on === null) return null;
   return (
-    <div className="local-checks">
-      <label className="row" style={{ justifyContent: 'flex-start' }}>
-        <input
-          type="checkbox"
-          checked={on}
-          aria-describedby={helpId}
-          onChange={(e) => void localChecksItem.setValue(e.target.checked)}
-        />
-        <span>Instant local checks</span>
-      </label>
-      <p id={helpId} className="muted setting-help">
-        {LOCAL_CHECKS_HELP}
-      </p>
-    </div>
+    <label className="setting">
+      <span className="setting-text">
+        <span className="setting-name">Instant local checks</span>
+        <span id={helpId} className="setting-help">
+          {LOCAL_CHECKS_HELP}
+        </span>
+      </span>
+      <Switch aria-label="Instant local checks" aria-describedby={helpId} checked={on} onChange={(v) => void localChecksItem.setValue(v)} />
+    </label>
   );
 }

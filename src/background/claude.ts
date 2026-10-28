@@ -72,7 +72,7 @@ export const SYNONYMS_MODEL = 'claude-haiku-5-5' as const satisfies ClaudeModelI
 
 /** One tools request: the pieces a caller builds; the model and its settings follow from `kind`. */
 export interface ToolCall {
-  kind: 'rewrite' | 'synonyms' | 'followUp' | 'styleProfile' | 'tone' | 'readers' | 'grader' | 'deepCheck';
+  kind: 'rewrite' | 'wordLimit' | 'synonyms' | 'followUp' | 'styleProfile' | 'tone' | 'readers' | 'grader' | 'deepCheck';
   system: Anthropic.TextBlockParam[];
   user: string;
   schema: Record<string, unknown>;
@@ -82,13 +82,16 @@ export interface ToolCall {
 // Rewrite's max_tokens leaves room for adaptive thinking, which counts toward it even though it isn't
 // returned: three versions of a 2,000-character selection need about 1,500 tokens on their own.
 // Billing follows the tokens used, not this limit. A popover follow-up gets the same room on Sonnet: asked
-// for three new versions of a long selection, it writes as much as a rewrite, plus its message.
+// for three new versions of a long selection, it writes as much as a rewrite, plus its message. Fit a word limit
+// writes one version (at most the target, of a selection up to 5,000 characters), its short cuts and its thinking:
+// one answer used 3,810 tokens, so it gets twice the room. It is streamed: measured at up to 25 s on a 700-word
+// essay, its thinking varies more than its length does.
 //
 // `effort` is the output_config effort; `thinkingOff` sends `thinking: disabled` (Sonnet rejects it, Haiku thinks
 // by default without it). Reviews: tone is a one-line Haiku read; deep check reads the whole text, so it gets
 // medium effort and room for the paragraphs' issues plus notes.
 //
-// `stream`: readers, grader and deep check can run past 30 s, and a service worker is stopped when a fetch
+// `stream`: word limit, readers, grader and deep check can run past 30 s, and a service worker is stopped when a fetch
 // response takes longer than that to arrive. Streamed, the response starts at once; `timeout` then bounds the
 // whole answer (see streamMessage). The review kinds never retry: a retry would run, and bill, the call again.
 interface ToolSetting {
@@ -103,6 +106,7 @@ interface ToolSetting {
 }
 export const TOOL_SETTINGS: Readonly<Record<ToolCall['kind'], Readonly<ToolSetting>>> = {
   rewrite: { model: REWRITE_MODEL, max_tokens: 4096, timeout: 60_000, effort: 'low' },
+  wordLimit: { model: REWRITE_MODEL, max_tokens: 8192, timeout: 60_000, effort: 'low', stream: true },
   synonyms: { model: SYNONYMS_MODEL, max_tokens: 1024, timeout: 20_000, thinkingOff: true },
   followUp: { model: REWRITE_MODEL, max_tokens: 4096, timeout: 60_000, effort: 'low' },
   styleProfile: { model: REWRITE_MODEL, max_tokens: 2048, timeout: 60_000, effort: 'low' },

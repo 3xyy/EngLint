@@ -19,9 +19,12 @@ const shared = vi.hoisted(() => ({
   rewrite: null as ((fieldId: string, issueId: string) => void) | null,
   renders: [] as { fieldId: string; items: OverlayItem[]; where?: LayerTarget }[],
   results: [] as RenderResult[],
-  /** Every showSelectionButton anchor (null: hidden) and every showTools view (null: closed), in order. */
+  /** Every selection bar's box (null: hidden), the bars themselves, and every showTools view (null: closed), in order. */
   buttons: [] as (DOMRect | null)[],
+  bars: [] as ({ at: DOMRect; mode: string; singleWord?: boolean; onPick(run: unknown): void } | null)[],
   tools: [] as (ToolsView | null)[],
+  /** The handlers of the last showTools. */
+  toolsHandlers: null as { close(returnFocus?: boolean): void } | null,
   /** Every showNotice text (null: hidden), in order. */
   notices: [] as (string | null)[],
   /** Every flash: the field and the rects it covered. */
@@ -38,6 +41,7 @@ const shared = vi.hoisted(() => ({
   badgeClick: null as ((fieldId: string) => void) | null,
   sessions: [] as {
     list: LocatedIssue[];
+    textNow: string;
     statusNow: CheckStatus;
     busyNow: boolean;
     checkedNow: boolean;
@@ -56,11 +60,13 @@ vi.mock('../../src/content/overlay/mount', () => ({
   mountOverlay: async () => {
     shared.mounts++;
     return {
-      showSelectionButton(anchor: DOMRect | null) {
-        shared.buttons.push(anchor);
+      showSelectionBar(bar: { at: DOMRect; mode: string; singleWord?: boolean; onPick(run: unknown): void } | null) {
+        shared.buttons.push(bar?.at ?? null);
+        shared.bars.push(bar);
       },
-      showTools(_anchor: DOMRect | null, view: ToolsView | null) {
+      showTools(_anchor: DOMRect | null, view: ToolsView | null, handlers: { close(returnFocus?: boolean): void }) {
         shared.tools.push(view);
+        shared.toolsHandlers = handlers;
       },
       flash(fieldId: string, rects: DOMRect[]) {
         shared.flashes.push({ fieldId, rects });
@@ -110,6 +116,7 @@ vi.mock('../../src/content/overlay/mount', () => ({
 vi.mock('../../src/content/session', () => ({
   FieldSession: class {
     list: LocatedIssue[] = [];
+    textNow = 'I has a cat.';
     statusNow: CheckStatus = 'ok';
     busyNow = false;
     checkedNow = true;
@@ -129,6 +136,9 @@ vi.mock('../../src/content/session', () => ({
     start() {}
     issues() {
       return this.list;
+    }
+    text() {
+      return this.textNow;
     }
     status(): CheckStatus {
       return this.statusNow;
@@ -249,6 +259,7 @@ beforeEach(() => {
   shared.results.length = 0;
   shared.sessions.length = 0;
   shared.buttons.length = 0;
+  shared.bars.length = 0;
   shared.tools.length = 0;
   shared.notices.length = 0;
   shared.flashes.length = 0;
@@ -286,6 +297,28 @@ describe("a field's session and the local Harper checker", () => {
     expect(opts.localChecks!()).toBe(true);
     localOn = false;
     expect(opts.localChecks!()).toBe(false);
+  });
+});
+
+describe("each drawn issue carries the words around it, from the text the session located it in, for its card's preview", () => {
+  it('the text before and after the issue, inside its paragraph', async () => {
+    const { setIssues } = field();
+    const session = shared.sessions.at(-1)!;
+    session.textNow = 'A first line.\nI has a cat.\nLast line.';
+    setIssues([{ ...issue('a'), start: 16, end: 19 }]);
+    await frame();
+    expect(shared.renders.at(-1)!.items[0]!.context).toEqual({ before: 'I ', after: ' a cat.' });
+  });
+
+  it('a long paragraph: 100 characters on each side, not the whole paragraph', async () => {
+    const { setIssues } = field();
+    const session = shared.sessions.at(-1)!;
+    session.textNow = `${'word '.repeat(100)}has${' word'.repeat(100)}`;
+    setIssues([{ ...issue('a'), start: 500, end: 503 }]);
+    await frame();
+    const { before, after } = shared.renders.at(-1)!.items[0]!.context!;
+    expect([before.length, after.length]).toEqual([100, 100]);
+    expect([before.startsWith('word '), after.endsWith(' word')]).toEqual([true, true]);
   });
 });
 
@@ -407,51 +440,59 @@ describe('openTools: the menu and the shortcut open the popover through FieldHos
     expect(vi.mocked(sendMessage)).toHaveBeenCalledWith('rewrite', expect.objectContaining({ text: 'has', request: REWRITE }));
   });
 
-  it("hides the selection button the way pressing it does, and the button stays away while it's open", async () => {
+  it("hides the selection bar the way a pick on it does, and the bar stays away while it's open", async () => {
     const el = document.createElement('textarea');
     document.body.append(el);
     const host = createFieldHost(ctx, { host: 'example.com', settings, isFocused: () => true });
-    const f = host.attach(el, () => ({ ...fakeAdapter(el), selection: async () => ({ start: 2, end: 5 }) }));
+    let sel = { start: 2, end: 5 };
+    const f = host.attach(el, () => ({ ...fakeAdapter(el), selection: async () => sel }));
     host.selectionChanged();
     await vi.advanceTimersByTimeAsync(200);
-    expect(shared.buttons.at(-1)).toBeInstanceOf(DOMRect); // the button is up
+    expect(shared.buttons.at(-1)).toBeInstanceOf(DOMRect); // the bar is up
 
     await host.openTools(f, range);
     expect(shared.buttons.at(-1)).toBeNull();
-    expect(shared.tools.at(-1)).toEqual({ phase: 'menu', mode: 'standard' });
+    expect(shared.tools.at(-1)).toEqual({ phase: 'menu', mode: 'standard', singleWord: true }); // one word: "has"
     const shown = shared.buttons.length;
+    sel = { start: 0, end: 5 };
     host.selectionChanged(); // a new selection while the popover is open
     await vi.advanceTimersByTimeAsync(200);
     expect(shared.buttons.slice(shown).every((b) => b === null)).toBe(true);
   });
 
-  describe('the selection button anchor', () => {
+  describe('the selection bar', () => {
     const lastAnchor = () => shared.buttons.at(-1);
     const attachWith = (extra: Partial<EditorAdapter>) => {
       const el = document.createElement('textarea');
       document.body.append(el);
       const host = createFieldHost(ctx, { host: 'example.com', settings, isFocused: () => true });
       const selection = vi.fn(async () => ({ start: 2, end: 5 }));
-      host.attach(el, () => ({ ...fakeAdapter(el), selection, ...extra }));
-      return { host, selection };
+      const f = host.attach(el, () => ({ ...fakeAdapter(el), selection, ...extra }));
+      return { host, selection, f };
     };
     const settle = async (host: { selectionChanged(): void }) => {
       host.selectionChanged();
       await vi.advanceTimersByTimeAsync(200);
     };
 
-    it('is the last painted highlight rect when it sits on the range\'s last line, the range still read from selection()', async () => {
+    it('sits over the box around every measured line, so it is above the whole selection', async () => {
+      const { host } = attachWith({ rectsFor: async () => [new DOMRect(90, 40, 100, 20), new DOMRect(10, 62, 60, 20)] });
+      await settle(host);
+      expect(lastAnchor()).toEqual(new DOMRect(10, 40, 180, 42));
+    });
+
+    it('takes the last line as painted when the highlight sits on the range\'s last line (it can end past the measured word)', async () => {
       const rectsFor = vi.fn(async () => [new DOMRect(10, 40, 30, 20), new DOMRect(90, 62, 100, 20)]);
       const { host, selection } = attachWith({
         rectsFor,
-        selectionRects: async () => [new DOMRect(100, 40, 60, 18), new DOMRect(96, 64, 80, 18)],
+        selectionRects: async () => [new DOMRect(100, 40, 60, 18), new DOMRect(96, 64, 104, 18)],
       });
       await settle(host);
       expect(selection).toHaveBeenCalled();
-      expect(lastAnchor()).toEqual(new DOMRect(96, 64, 80, 18));
+      expect(lastAnchor()).toEqual(new DOMRect(10, 40, 190, 42)); // right edge 200: the paint's
     });
 
-    it('is the measured last rect when the painted boxes are on another line: a stale highlight', async () => {
+    it('leaves the painted boxes out when they are on another line: a stale highlight', async () => {
       const { host } = attachWith({
         rectsFor: async () => [new DOMRect(90, 200, 100, 20)],
         selectionRects: async () => [new DOMRect(100, 40, 60, 18)],
@@ -467,18 +508,16 @@ describe('openTools: the menu and the shortcut open the popover through FieldHos
     });
 
     it('works with a synchronous selectionRects', async () => {
-      const { host } = attachWith({ selectionRects: () => [new DOMRect(5, 6, 7, 8)] });
+      const { host } = attachWith({ rectsFor: async () => [], selectionRects: () => [new DOMRect(5, 6, 7, 8)] });
       await settle(host);
       expect(lastAnchor()).toEqual(new DOMRect(5, 6, 7, 8));
     });
 
-    it('is the measured last rect when selectionRects gives null', async () => {
-      const { host } = attachWith({ selectionRects: async () => null });
-      await settle(host);
+    it('is the measured box when selectionRects gives null, none, or throws', async () => {
+      const none = attachWith({ selectionRects: async () => null });
+      await settle(none.host);
       expect(lastAnchor()).toEqual(new DOMRect(10, 10, 30, 20));
-    });
-
-    it('is the measured last rect when selectionRects gives none or throws', async () => {
+      shared.buttons.length = 0;
       const empty = attachWith({ selectionRects: async () => [] });
       await settle(empty.host);
       expect(lastAnchor()).toEqual(new DOMRect(10, 10, 30, 20));
@@ -497,6 +536,78 @@ describe('openTools: the menu and the shortcut open the popover through FieldHos
       await settle(host);
       expect(shared.buttons.some((b) => b !== null)).toBe(false);
     });
+
+    it('is told the page mode and whether the selection is one word', async () => {
+      const word = attachWith({ getText: async () => 'I has a cat' }); // [2, 5): "has"
+      await settle(word.host);
+      expect(shared.bars.at(-1)).toMatchObject({ mode: 'standard', singleWord: true });
+      const phrase = attachWith({ getText: async () => 'I has a cat', selection: async () => ({ start: 2, end: 11 }) });
+      await settle(phrase.host);
+      expect(shared.bars.at(-1)).toMatchObject({ mode: 'standard', singleWord: false });
+    });
+
+    it('a pick on it opens the popover sending that request, on the snapped selection ("roble" in "problems")', async () => {
+      const text = 'Our problems are big.';
+      const { host } = attachWith({ getText: async () => text, selection: async () => ({ start: 5, end: 10 }) });
+      await settle(host);
+      expect(shared.bars.at(-1)).toMatchObject({ singleWord: true });
+      shared.bars.at(-1)!.onPick({ kind: 'preset', presetId: 'formal' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(shared.buttons.at(-1)).toBeNull(); // the popover takes the bar's place
+      expect(vi.mocked(sendMessage)).toHaveBeenCalledWith('rewrite', expect.objectContaining({ text: 'problems', request: { kind: 'preset', presetId: 'formal' } }));
+    });
+
+    it('the popover closed without an apply (Esc, Close, a click outside) brings the bar back for the same selection', async () => {
+      const { host, f } = attachWith({ getText: async () => 'I has a cat', selection: async () => ({ start: 2, end: 5 }) });
+      await settle(host);
+      expect(shared.buttons.at(-1)).toBeInstanceOf(DOMRect);
+      for (const returnFocus of [true, false]) {
+        await host.openTools(f, { start: 2, end: 5, text: 'has' });
+        expect(shared.buttons.at(-1)).toBeNull();
+        await vi.advanceTimersByTimeAsync(0);
+        shared.toolsHandlers!.close(returnFocus);
+        await vi.advanceTimersByTimeAsync(200); // no other selection event comes
+        expect(shared.buttons.at(-1), String(returnFocus)).toBeInstanceOf(DOMRect);
+      }
+    });
+
+    it('after an apply that kept the same range, the bar stays away for it until the selection changes', async () => {
+      let sel = { start: 2, end: 5 };
+      const { host, f } = attachWith({ getText: async () => 'I has a cat', selection: async () => sel });
+      await settle(host);
+      await host.openTools(f, { start: 2, end: 5, text: 'has' });
+      await vi.advanceTimersByTimeAsync(0);
+      (shared.toolsHandlers as unknown as { apply(text: string): void }).apply('had'); // the same length: the same range
+      await vi.advanceTimersByTimeAsync(0);
+      expect(shared.tools.at(-1)).toBeNull(); // applied and closed
+      await settle(host);
+      expect(shared.buttons.at(-1)).toBeNull();
+      sel = { start: 2, end: 11 }; // another selection
+      await settle(host);
+      expect(shared.buttons.at(-1)).toBeInstanceOf(DOMRect);
+    });
+
+    it('is told how far a long selection is over the tools\' limits', async () => {
+      const long = (n: number) => attachWith({ getText: async () => 'word '.repeat(n).trim(), selection: async () => ({ start: 0, end: n * 5 - 1 }) });
+      const mid = long(500); // 2,499 characters
+      await settle(mid.host);
+      expect(shared.bars.at(-1)).toMatchObject({ tooLong: 'rewrites' });
+      const over = long(1100); // 5,499 characters
+      await settle(over.host);
+      expect(shared.bars.at(-1)).toMatchObject({ tooLong: 'all' });
+      const short = attachWith({ getText: async () => 'I has a cat' });
+      await settle(short.host);
+      expect(shared.bars.at(-1)).not.toHaveProperty('tooLong');
+    });
+
+    it('"Ask anything…" on it opens the popover\'s bar with the box focused, sending nothing', async () => {
+      const { host } = attachWith({ getText: async () => 'I has a cat', selection: async () => ({ start: 2, end: 11 }) });
+      await settle(host);
+      shared.bars.at(-1)!.onPick('custom-prompt');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(shared.tools.at(-1)).toEqual({ phase: 'menu', mode: 'standard', focus: 'custom' });
+      expect(vi.mocked(sendMessage)).not.toHaveBeenCalledWith('rewrite', expect.anything());
+    });
   });
 
   it('a field that left before the overlay mounted opens nothing', async () => {
@@ -508,7 +619,7 @@ describe('openTools: the menu and the shortcut open the popover through FieldHos
     expect(shared.tools).toEqual([]);
   });
 
-  it('a comment-only card\'s "Rewrite this sentence" opens Rewrite on that issue\'s sentence, not the whole text', async () => {
+  it('a comment-only card\'s "Rewrite sentence" opens Rewrite on that issue\'s sentence, not the whole text', async () => {
     const text = 'First one here. The very unique plan works. Last one.';
     const el = document.createElement('textarea');
     document.body.append(el);
@@ -579,7 +690,7 @@ describe('openTools: the menu and the shortcut open the popover through FieldHos
     expect(vi.mocked(sendMessage)).toHaveBeenCalledWith('rewrite', expect.objectContaining({ text: 'It rained. We left early.' }));
   });
 
-  it('"Rewrite this sentence" on a note whose text changed since the check opens nothing and says so', async () => {
+  it('"Rewrite sentence" on a note whose text changed since the check opens nothing and says so', async () => {
     const el = document.createElement('textarea');
     document.body.append(el);
     const host = createFieldHost(ctx, { host: 'example.com', settings, isFocused: () => true });
@@ -743,11 +854,11 @@ describe('the suggestion policy and the card actions', () => {
     expect(sb!.refilter).toHaveBeenCalledTimes(2);
   });
 
-  it('the card offers "Stop suggesting {label}", "Add to dictionary", or nothing', async () => {
+  it('the card offers "Stop suggesting {label}", "Add “{word}” to dictionary", or nothing', async () => {
     const { host, f } = field();
     await host.overlay();
     expect(shared.cardActions!(f.fieldId, PASSIVE)?.label).toBe('Stop suggesting passive voice');
-    expect(shared.cardActions!(f.fieldId, KUBERNETES)?.label).toBe('Add to dictionary');
+    expect(shared.cardActions!(f.fieldId, KUBERNETES)?.label).toBe('Add “Kubernetes” to dictionary');
     expect(shared.cardActions!(f.fieldId, GRAMMAR)).toBeNull();
     pageMode = 'casual'; // Casual has no rules
     expect(shared.cardActions!(f.fieldId, located({ ...PASSIVE, kind: 'oxford_comma', severity: 'error' }))).toBeNull();
@@ -991,11 +1102,23 @@ describe("the badge: the focused field's counts and status in its corner", () =>
         busy: false,
         status: 'ok',
         checked: true,
+        family: 'clarity',
         caret: null,
         field: el,
         inset: 6,
       },
     });
+  });
+
+  it('it is told the top family of the open suggestions, for its colour', async () => {
+    const { setIssues } = badgeField();
+    const of = (kind: string) => ({ ...sugg(kind), id: kind, kind, category: 'clarity' }) as LocatedIssue;
+    setIssues([err('a'), of('generic_phrasing'), of('hedging')]);
+    await frame();
+    expect(lastBadge()!.state!.family).toBe('delivery');
+    setIssues([err('a')]);
+    await frame();
+    expect(lastBadge()!.state!.family).toBeUndefined();
   });
 
   it('a clean focused field shows it too, mounting the overlay for it', async () => {

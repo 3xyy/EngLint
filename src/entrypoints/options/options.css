@@ -1,0 +1,143 @@
+/*
+ * The options page: a sticky nav at the left, then a card per section. Colours are tokens only. The page sits a
+ * step below its cards: light cards on a grey page, and in the dark scheme raised cards on the darkest ground.
+ */
+:root { --opt-page: var(--el-surface); --opt-card: var(--el-bg); --opt-sunken: var(--el-surface); }
+@media (prefers-color-scheme: dark) {
+  :root { --opt-page: var(--el-bg); --opt-card: var(--el-surface); --opt-sunken: var(--el-surface-2); }
+}
+html { scroll-behavior: smooth; }
+body { background: var(--opt-page); }
+
+.options {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 680px);
+  justify-content: center;
+  align-items: start;
+  gap: 40px;
+  padding: 40px 24px 96px;
+}
+.options-side { position: sticky; top: 40px; }
+.options-mark { margin: 6px 0 18px; padding: 0 12px; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.options-nav { display: grid; gap: 2px; }
+.options-nav a {
+  display: block;
+  padding: 7px 12px;
+  border-radius: var(--el-radius-control);
+  color: var(--el-text-2);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.options-nav a:hover { background: var(--el-surface-2); color: var(--el-text); }
+.options-nav a[aria-current] { background: var(--el-accent-soft); color: var(--el-accent); }
+.options-nav a:focus-visible { outline: none; box-shadow: var(--el-focus); }
+
+.options-main { min-width: 0; }
+.options-title { margin: 0 0 20px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.3; }
+
+/* A section (SettingsCard): the title, a one-line description, then its settings. */
+.settings-card {
+  margin: 0 0 16px;
+  padding: 20px 24px;
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-card);
+  background: var(--opt-card);
+  scroll-margin-top: 24px;
+}
+.settings-card-head { margin: 0 0 8px; }
+.settings-card h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.45; }
+.settings-card-desc { margin: 2px 0 0; color: var(--el-text-2); font-size: 13px; }
+.settings-card h3 { margin: 18px 0 8px; font-size: 14px; font-weight: 600; }
+/* Paragraphs get a default margin that any class of their own overrides. */
+:where(.settings-card) p { margin: 8px 0; }
+.settings-card .setting { padding: 12px 0; }
+.family-toggles + .setting { border-top: 1px solid var(--el-border); }
+/* A setting whose control is a field: only the field takes the click. */
+.setting-field { cursor: default; }
+.setting-field select { width: 220px; flex: none; }
+.cap-input { width: 120px; flex: none; }
+.settings-card .spend { margin-top: 4px; }
+.docs-tip { margin: 0; }
+
+/* Fields, on the tokens. */
+.options input:not([type='checkbox']):not([type='radio']), .options select, .options textarea {
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-control);
+  background: var(--el-bg);
+  color: var(--el-text);
+  font: 14px/1.45 var(--el-font);
+}
+.options textarea { display: block; width: 100%; height: auto; padding: 8px 10px; resize: vertical; }
+.options input::placeholder, .options textarea::placeholder { color: var(--el-text-3); }
+.options input:focus-visible, .options select:focus-visible, .options textarea:focus-visible {
+  outline: none;
+  border-color: var(--el-accent);
+  box-shadow: var(--el-focus);
+}
+.options input[readonly] { background: var(--opt-sunken); color: var(--el-text-2); }
+
+/* A setting with its label above it and the control at full width (the AI provider's key, endpoint and models). */
+.field { display: grid; gap: 6px; margin: 14px 0; }
+.field > span, .field > label { font-size: 13px; font-weight: 500; }
+.field > input, .field > select, .field > textarea { width: 100%; }
+.provider-pick > select { max-width: 320px; }
+.field-note { margin: -4px 0 4px; font-size: 13px; }
+.field-error { margin: -8px 0 12px; color: var(--el-del); font-size: 12px; line-height: 16px; }
+/* A model's two prices, side by side under it. */
+.prices { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; margin: -6px 0 16px; padding: 2px 0 2px 14px; border-left: 2px solid var(--el-border); }
+.prices .field { margin: 6px 0; }
+.prices .field > span { color: var(--el-text-2); font-size: 12px; font-weight: 400; line-height: 16px; }
+.prices .setting-warning { grid-column: 1 / -1; }
+.setting-warning {
+  margin: 4px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--el-border);
+  border-left: 3px solid var(--el-generic);
+  border-radius: var(--el-radius-control);
+  background: var(--opt-sunken);
+  color: var(--el-text);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* Keys: whether one is saved (a pill), the field and its buttons; with no key yet, the steps in an accent box. */
+.key-box h3 { margin-top: 20px; }
+.key-box-new { margin: 16px 0 4px; padding: 2px 16px 14px; border: 1px solid var(--el-accent); border-radius: var(--el-radius-card); background: var(--el-accent-soft); }
+.key-box-new h3 { margin-top: 14px; }
+.key-box-new ol { margin: 0 0 12px; padding-left: 20px; }
+.key-box-new li { margin: 4px 0; }
+.key-box-new a { color: var(--el-accent); font-weight: 500; }
+.key-state { margin: 8px 0; }
+.key-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.key-row input { flex: 1 1 220px; min-width: 0; }
+.key-saved { display: flex; align-items: center; gap: 8px; margin: -6px 0 8px; }
+.key-saved .key-state { margin: 0; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0 0; }
+.result { margin: 12px 0 0; padding: 8px 12px; border-radius: var(--el-radius-control); background: var(--opt-sunken); font-size: 13px; }
+.result a { color: var(--el-accent); }
+
+/* Your writing style: the count and the build button on one line under the box. */
+.style-profile > p:first-child { margin-top: 0; }
+.style-build { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: -4px 0 8px; font-size: 13px; }
+
+/* Narrow windows: the nav becomes a row of chips above the content. */
+@media (max-width: 799px) {
+  .options { grid-template-columns: minmax(0, 1fr); gap: 20px; padding: 20px 16px 48px; }
+  .options-side { position: static; }
+  .options-mark { margin: 0 0 12px; padding: 0; }
+  .options-nav { display: flex; flex-wrap: wrap; gap: 6px; }
+  .options-nav a { padding: 5px 11px; border: 1px solid var(--el-border); border-radius: var(--el-radius-pill); background: var(--opt-card); font-size: 13px; }
+  .options-nav a[aria-current] { border-color: transparent; background: var(--el-accent-soft); }
+  .settings-card { padding: 16px; }
+  .setting-field { flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .options-nav a { transition: none; }
+}

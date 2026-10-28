@@ -1,22 +1,27 @@
-// The side panel's Tools: rewrite or find synonyms for text no field holds (page text, a canvas app, Docs in
-// fallback mode). The right-click menu and the shortcut put the selection here (the stash, background/
-// menus.ts); the user can also paste. Same rewrite and synonyms messages as the popover, Copy only (there is
-// no field to apply to). Nothing here logs the text or the answers.
-import { useEffect, useRef, useState } from 'react';
+// The side panel's Tools: rewrite, find synonyms or fit a word limit for text no field holds (page text, a canvas
+// app, Docs in fallback mode). The right-click menu and the shortcut put the selection here (the stash, background/
+// menus.ts); the user can also paste. Same messages as the popover, Copy only (there is no field to apply to).
+// Nothing here logs the text or the answers.
+import { useEffect, useId, useRef, useState } from 'react';
 import { storage } from 'wxt/utils/storage';
 import { type ToolsStash, toolsStashKey } from '../../background/menus';
 import { Diff } from '../../content/overlay/ToolsPopover';
 import { MAX_SELECTION_CHARS } from '../../content/tools/selection';
-import { TOOLS_COPY } from '../../content/tools/tools-controller';
+import { TOOLS_COPY, retryable } from '../../content/tools/tools-controller';
 import { changesClaims } from '../../core/claims';
+import { countWords } from '../../core/doc-stats';
 import { ALREADY_YOU, tellsLine } from '../../core/follow-up';
 import { effectiveMode } from '../../core/modes';
-import { isVoice, presetsFor, type RewriteToolRequest, type ToolRequest } from '../../core/presets';
+import { BAR_ACTIONS, isVoice, presetsFor, type BarAction, type BarItem, type RewriteToolRequest, type ToolRequest } from '../../core/presets';
 import { webHost } from '../../core/sites';
 import type { CheckStatus, Mode } from '../../core/types';
+import { MAX_SHOWN_CUTS, MAX_WORD_LIMIT_CHARS, applyCuts, withFound, type CutsShown } from '../../core/word-limit';
 import { sendMessage } from '../../shared/messages';
 import { essaySitesItem, siteModesItem } from '../../shared/settings';
 import { toolStatusText } from '../../shared/status-text';
+import { Button } from '../../shared/ui/controls';
+import { SparkleIcon } from '../../shared/ui/icons';
+import { CutList, TargetPicker } from '../../shared/ui/WordLimit';
 import { useProviderInfo } from '../../shared/use-provider-info';
 
 /** A stashed request older than this only fills the text: the panel didn't open with it, so it isn't run. */
@@ -34,12 +39,52 @@ type View =
   /** Sound like me: the generic patterns found and its one version (Copy only here, like every result). */
   | { phase: 'voice'; tells: string[]; final: string; original: string }
   | { phase: 'synonyms'; options: { text: string; nuance: string }[] }
+  /** Fit a word limit's target picker for `text` (trimmed), `words` long. */
+  | { phase: 'wordLimitPick'; text: string; words: number }
+  /**
+   * Fit a word limit's cuts for `text`: `more`, Find more cuts is offered; `noneNew`, the last search for more found
+   * none; `error`, it failed, and this is its status (the cuts and the picks stay).
+   */
+  | { phase: 'wordLimit'; text: string; words: number; shown: CutsShown; more: boolean; noneNew?: true; error?: string }
   | { phase: 'error'; text: string };
 
 const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
+type ToolButton = Extract<BarAction, { kind: 'button' }>;
+type ToolItem = BarItem & { run: ToolRequest };
+
+/**
+ * The selection bar's actions (BAR_ACTIONS) as the Tools lay them out: its buttons first (Improve, My voice,
+ * Synonyms), then each of its menus as a labelled group of buttons, so every action is one click. Items follow
+ * the mode; Synonyms stays a button (for up to 4 words), and "Ask anything…" is the box below the actions.
+ */
+function toolsActions(mode: Mode): { lead: ToolButton[]; groups: { id: string; label: string; items: ToolItem[] }[] } {
+  const offered = (i: BarItem): i is ToolItem => i.run !== 'custom-prompt' && i.run.kind !== 'synonyms' && (!i.modes || i.modes.includes(mode));
+  return {
+    lead: BAR_ACTIONS.filter((a): a is ToolButton => a.kind === 'button'),
+    groups: BAR_ACTIONS.flatMap((a) => (a.kind === 'menu' ? [{ id: a.id, label: a.label, items: a.items.filter(offered) }] : [])).filter(
+      (g) => g.items.length > 0,
+    ),
+  };
+}
+
 /** Copies `text`; reads `idle` ("Copy" unless given), then "Copied" or "Couldn't copy" for a moment. */
-export function CopyButton({ text, label, idle = 'Copy', onCopied }: { text: string; label: string; idle?: string; onCopied?(ok: boolean): void }) {
+export function CopyButton({
+  text,
+  label,
+  idle = 'Copy',
+  disabled,
+  describedBy,
+  onCopied,
+}: {
+  text: string;
+  label: string;
+  idle?: string;
+  disabled?: boolean;
+  /** The id of a note about what it copies. */
+  describedBy?: string;
+  onCopied?(ok: boolean): void;
+}) {
   const [copied, setCopied] = useState<boolean | null>(null);
   useEffect(() => {
     if (copied === null) return;
@@ -57,9 +102,9 @@ export function CopyButton({ text, label, idle = 'Copy', onCopied }: { text: str
     onCopied?.(ok);
   }
   return (
-    <button type="button" className="btn tools-copy" aria-label={label} onClick={() => void copy()}>
+    <Button size="sm" className="tools-copy" aria-label={label} aria-describedby={describedBy} disabled={disabled} onClick={() => void copy()}>
       {copied === null ? idle : copied ? 'Copied' : "Couldn't copy"}
-    </button>
+    </Button>
   );
 }
 
@@ -81,6 +126,7 @@ export function Tools({
   const [view, setView] = useState<View>({ phase: 'idle' });
   const [copyNote, setCopyNote] = useState('');
   const [mode, setMode] = useState<Mode>('standard'); // the page's mode: it picks the presets offered
+  const factsId = useId();
   const seq = useRef(0); // a newer run makes an older answer stop
   const taken = useRef(new Set<number>()); // stashes already used (by `at`): each fills the text once
   const who = useProviderInfo();
@@ -91,6 +137,10 @@ export function Tools({
   const tooLong = target.length > MAX_SELECTION_CHARS;
   const canRun = target !== '' && !tooLong && view.phase !== 'loading';
   const canSynonyms = canRun && wordCount(target) <= MAX_SYNONYM_WORDS;
+  const limitTooLong = target.length > MAX_WORD_LIMIT_CHARS;
+  const canLimit = !limitTooLong && countWords(target) >= 2 && view.phase !== 'loading';
+  const canDo = (r: ToolRequest) => (r.kind === 'synonyms' ? canSynonyms : r.kind === 'wordLimit' ? canLimit : canRun);
+  const actions = toolsActions(mode);
 
   /** The tab's host (its URL; else what its fields reported) and that site's mode, for the Essay gate. */
   async function site(): Promise<{ host: string; mode: Mode }> {
@@ -123,9 +173,18 @@ export function Tools({
     text: toolStatusText(status === 'ok' ? 'bad_response' : status, latest.current.spend ?? undefined, latest.current.who) ?? '',
   });
 
-  /** Runs `r` on `raw` (trimmed): in Essay mode a rewrite starts with the critique, unless `stage` says. */
+  /**
+   * Runs `r` on `raw` (trimmed): in Essay mode a rewrite starts with the critique, unless `stage` says. Fit a word limit
+   * shows its target picker first (up to MAX_WORD_LIMIT_CHARS, and more than one word).
+   */
   async function run(r: ToolRequest, raw: string, stage?: 'critique' | 'variants') {
     const selection = raw.trim();
+    if (r.kind === 'wordLimit') {
+      const words = countWords(selection);
+      if (selection.length > MAX_WORD_LIMIT_CHARS || words < 2) return; // as its button: nothing shown
+      seq.current++; // an answer still on its way stops
+      return setView({ phase: 'wordLimitPick', text: selection, words });
+    }
     if (selection === '' || selection.length > MAX_SELECTION_CHARS) return; // as the buttons: nothing sent
     if (r.kind === 'synonyms' && wordCount(selection) > MAX_SYNONYM_WORDS) return;
     if (r.kind === 'custom' && r.instruction.trim() === '') return;
@@ -155,6 +214,35 @@ export function Tools({
       }
     } catch {
       next = failed('offline'); // the message never reached the background
+    }
+    if (t === seq.current) setView(next);
+  }
+
+  /**
+   * Fit a word limit's search for `target` words in `text` (no field: no context); with `prior`, a search for more,
+   * which keeps `prior` (the cuts and the picks) when it fails, with its status under them.
+   */
+  async function findCuts(text: string, target: number, prior: CutsShown | null = null) {
+    const t = ++seq.current;
+    const failedSearch = (status: CheckStatus): View => {
+      const view = failed(status);
+      if (!prior || view.phase !== 'error') return view;
+      return { phase: 'wordLimit', text, words: countWords(text), shown: prior, more: retryable(status) && prior.cuts.length < MAX_SHOWN_CUTS, error: view.text };
+    };
+    let next: View;
+    try {
+      const { host, mode } = await site();
+      if (t !== seq.current) return;
+      setView({ phase: 'loading', label: prior ? TOOLS_COPY.findingMore : TOOLS_COPY.findingCuts });
+      const shown = prior?.cuts.map(({ start, end, original, replacement }) => ({ start, end, original, replacement })) ?? [];
+      const res = await sendMessage('wordLimit', { host, mode, text, before: '', after: '', target, ...(shown.length ? { shown } : {}) });
+      if (res.status === 'ok' && res.cuts) {
+        const now = withFound(text, target, { cuts: res.cuts, version: res.version, versionChangesFacts: res.versionChangesFacts }, prior);
+        const noneNew = !!prior && res.cuts.length === 0;
+        next = { phase: 'wordLimit', text, words: countWords(text), shown: now, more: !noneNew && now.cuts.length < MAX_SHOWN_CUTS, ...(noneNew ? { noneNew } : {}) };
+      } else next = failedSearch(res.status);
+    } catch {
+      next = failedSearch('offline'); // the message never reached the background
     }
     if (t === seq.current) setView(next);
   }
@@ -207,9 +295,9 @@ export function Tools({
               </li>
             </ul>
             {isVoice(view.request) && changesClaims(view.original, view.lightFix, LENIENT) && <p className="tools-facts">{TOOLS_COPY.checkFacts}</p>}
-            <button type="button" className="btn" onClick={() => void run(view.request, view.original, 'variants')}>
+            <Button size="sm" onClick={() => void run(view.request, view.original, 'variants')}>
               {isVoice(view.request) ? TOOLS_COPY.showVersion : 'Show 3 rewrites'}
-            </button>
+            </Button>
           </>
         );
       case 'variants':
@@ -255,6 +343,56 @@ export function Tools({
             ))}
           </ul>
         );
+      case 'wordLimitPick':
+        return <TargetPicker key={view.text} words={view.words} onFind={(target) => void findCuts(view.text, target)} />;
+      case 'wordLimit': {
+        const { text, shown } = view;
+        const facts = shown.version !== null && shown.versionChangesFacts;
+        return (
+          <CutList
+            key={shown.cuts.length}
+            original={text}
+            words={view.words}
+            target={shown.target}
+            cuts={shown.cuts}
+            selected={shown.selected}
+            note={view.noneNew ? TOOLS_COPY.noMoreCuts : undefined}
+            error={view.error}
+            actions={(picked) => (
+              <>
+                <CopyButton
+                  text={applyCuts(text, shown.cuts.filter((_, i) => picked[i]))}
+                  label="Copy selected"
+                  idle="Copy selected"
+                  disabled={!picked.some(Boolean)}
+                  onCopied={onCopied}
+                />
+                {shown.version !== null && (
+                  <CopyButton
+                    text={shown.version}
+                    label={`Copy full version (${countWords(shown.version)} words)`}
+                    idle={`Copy full version (${countWords(shown.version)} words)`}
+                    describedBy={facts ? factsId : undefined}
+                    onCopied={onCopied}
+                  />
+                )}
+                {view.more && (
+                  <Button size="sm" onClick={() => void findCuts(text, shown.target, { ...shown, selected: picked })}>
+                    Find more cuts
+                  </Button>
+                )}
+              </>
+            )}
+            foot={
+              facts && (
+                <p id={factsId} className="el-wl-facts">
+                  {TOOLS_COPY.checkFacts}
+                </p>
+              )
+            }
+          />
+        );
+      }
       case 'error':
         return (
           <p className="tools-error" role="alert">
@@ -274,22 +412,36 @@ export function Tools({
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
-      {tooLong && <p className="muted tools-note">{TOOLS_COPY.tooLong}</p>}
+      {tooLong && <p className="muted tools-note">{limitTooLong ? TOOLS_COPY.tooLongForLimit : TOOLS_COPY.onlyLimit}</p>}
       <div className="tools-actions">
-        {presetsFor(mode).map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            className="btn"
-            disabled={!canRun}
-            onClick={() => void run({ kind: 'preset', presetId: p.id }, text)}
-          >
-            {p.title}
-          </button>
+        <div className="tools-lead">
+          {actions.lead.map((a) => (
+            <Button
+              key={a.id}
+              size="sm"
+              variant={a.id === 'improve' ? 'primary' : 'secondary'}
+              disabled={!canDo(a.run)}
+              onClick={() => void run(a.run, text)}
+            >
+              {a.id === 'improve' && <SparkleIcon size={14} />}
+              {a.label}
+            </Button>
+          ))}
+        </div>
+        {actions.groups.map((g) => (
+          <div key={g.id} role="group" aria-label={g.label} className="tools-group">
+            <span className="tools-group-label" aria-hidden="true">
+              {g.label}
+            </span>
+            <div className="tools-group-items">
+              {g.items.map((item) => (
+                <Button key={item.id} size="sm" disabled={!canDo(item.run)} onClick={() => void run(item.run, text)}>
+                  {item.label}
+                </Button>
+              ))}
+            </div>
+          </div>
         ))}
-        <button type="button" className="btn" disabled={!canSynonyms} onClick={() => void run({ kind: 'synonyms' }, text)}>
-          Synonyms
-        </button>
       </div>
       <input
         type="text"

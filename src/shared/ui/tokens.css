@@ -1,0 +1,25 @@
+/*
+ * EngLint's design tokens: one source for the overlay's shadow roots (:host) and the extension pages (:root).
+ * The host resets (all: initial) leave custom properties alone, so these still reach every element inside.
+ */
+:root, :host {
+  --el-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --el-bg: #ffffff;  --el-surface: #f6f6f7;  --el-surface-2: #eeeef0;  --el-border: #e3e3e6;
+  --el-text: #18181b;  --el-text-2: #52525b;  --el-text-3: #71717a;
+  --el-accent: #4f46e5;  --el-accent-hover: #4338ca;  --el-accent-soft: #eef0ff;  --el-on-accent: #ffffff;
+  --el-correctness: #e5484d;  --el-clarity: #2563eb;  --el-engagement: #16a34a;  --el-delivery: #9333ea;  --el-generic: #ea580c;
+  --el-del: #c2414b;  --el-ins: #15803d;  --el-ins-bg: #e9f8ee;  --el-del-bg: #fdecee;  --el-amber: #f29900;
+  --el-radius-card: 12px;  --el-radius-control: 8px;  --el-radius-pill: 999px;
+  --el-shadow: 0 10px 30px rgba(17, 24, 39, .14), 0 2px 8px rgba(17, 24, 39, .08);
+  --el-shadow-sm: 0 1px 2px rgba(17, 24, 39, .2), 0 2px 6px rgba(17, 24, 39, .16);  --el-shadow-xs: 0 1px 2px rgba(17, 24, 39, .08);
+  --el-focus: 0 0 0 3px rgba(79, 70, 229, .35);
+}
+@media (prefers-color-scheme: dark) { :root, :host {
+  --el-bg: #1c1c1f;  --el-surface: #242428;  --el-surface-2: #2c2c31;  --el-border: #36363c;
+  --el-text: #ededef;  --el-text-2: #b4b4bc;  --el-text-3: #85858f;
+  --el-accent: #818cf8;  --el-accent-hover: #a5b4fc;  --el-accent-soft: #2a2b47;  --el-on-accent: #111827;
+  --el-correctness: #ff6b70;  --el-clarity: #60a5fa;  --el-engagement: #4ade80;  --el-delivery: #c084fc;  --el-generic: #fb923c;
+  --el-del: #ff8a8f;  --el-ins: #4ade80;  --el-ins-bg: #183a24;  --el-del-bg: #3d1d21;  --el-amber: #f29900;
+  --el-shadow: 0 10px 30px rgba(0, 0, 0, .5), 0 2px 8px rgba(0, 0, 0, .35);
+  --el-shadow-sm: 0 1px 2px rgba(0, 0, 0, .4), 0 2px 6px rgba(0, 0, 0, .3);  --el-shadow-xs: 0 1px 2px rgba(0, 0, 0, .3);
+} }

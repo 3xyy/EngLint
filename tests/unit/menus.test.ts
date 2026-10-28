@@ -38,29 +38,18 @@ describe('registerMenus', () => {
     expect(created.filter((p) => p.parentId === undefined)).toHaveLength(1);
   });
 
-  it('its children, in order: all ten presets, a separator, Synonyms and Custom instruction…', async () => {
+  it('its children follow the selection bar: Improve, Shorten ▸, Tone ▸, My voice and More ▸', async () => {
     const { menus, created } = fakeMenus();
     await registerMenus(menus);
     const parent = created.find((p) => p.parentId === undefined)!;
-    const children = created.filter((p) => p.parentId === parent.id);
-    expect(children.map((c) => (c.type === 'separator' ? '---' : c.title))).toEqual([
-      'Rewrite',
-      'Shorter',
-      'Clearer',
-      'More formal',
-      'More confident',
-      'Friendlier',
-      'More casual',
-      'Simpler',
-      'Expand',
-      'Sound like me',
-      '---',
-      'Synonyms',
-      'Custom instruction…',
-    ]);
-    expect(children).toHaveLength(created.length - 1); // nothing else
+    const under = (id: unknown) => created.filter((p) => p.parentId === id).map((c) => c.title);
+    expect(under(parent.id)).toEqual(['Improve', 'Shorten', 'Tone', 'My voice', 'More']);
+    expect(under('englint-shorten')).toEqual(['Shorter', 'Fit a word limit…']);
+    expect(under('englint-tone')).toEqual(['Formal', 'Confident', 'Friendly', 'Casual']);
+    expect(under('englint-more')).toEqual(['Expand', 'Synonyms', 'Ask anything…']);
+    expect(created).toHaveLength(1 + 5 + 2 + 4 + 3); // nothing else
     // A child's contexts default to 'page': each one needs the parent's to show under it.
-    for (const c of children) expect(c.contexts).toEqual(['selection', 'editable']);
+    for (const c of created) expect(c.contexts).toEqual(['selection', 'editable']);
     expect(new Set(created.map((c) => c.id)).size).toBe(created.length);
   });
 
@@ -73,18 +62,26 @@ describe('registerMenus', () => {
 });
 
 describe('menuRequest', () => {
-  it('maps each child id to what it opens; the parent, the separator and unknown ids to null', async () => {
+  it('maps each item to what it opens; the parent, the submenus and unknown ids to null', async () => {
     const { menus, created } = fakeMenus();
     await registerMenus(menus);
     const byTitle = (t: string) => String(created.find((c) => c.title === t)!.id);
-    expect(menuRequest(byTitle('Rewrite'))).toEqual({ kind: 'preset', presetId: 'rewrite' });
+    expect(menuRequest(byTitle('Improve'))).toEqual({ kind: 'preset', presetId: 'rewrite' });
     expect(menuRequest(byTitle('Shorter'))).toEqual({ kind: 'preset', presetId: 'shorter' });
-    expect(menuRequest(byTitle('Clearer'))).toEqual({ kind: 'preset', presetId: 'clearer' });
-    expect(menuRequest(byTitle('More formal'))).toEqual({ kind: 'preset', presetId: 'formal' });
+    expect(menuRequest(byTitle('Fit a word limit…'))).toEqual({ kind: 'wordLimit' });
+    expect(menuRequest(byTitle('Formal'))).toEqual({ kind: 'preset', presetId: 'formal' });
+    expect(menuRequest(byTitle('Friendly'))).toEqual({ kind: 'preset', presetId: 'friendlier' });
+    expect(menuRequest(byTitle('My voice'))).toEqual({ kind: 'preset', presetId: 'voice' });
+    expect(menuRequest(byTitle('Expand'))).toEqual({ kind: 'preset', presetId: 'expand' });
     expect(menuRequest(byTitle('Synonyms'))).toEqual({ kind: 'synonyms' });
-    expect(menuRequest(byTitle('Custom instruction…'))).toBe('custom-prompt');
+    expect(menuRequest(byTitle('Ask anything…'))).toBe('custom-prompt');
+    // The ids stay what they were for the presets kept, so a menu Chrome still holds keeps working.
+    expect(['englint-rewrite', 'englint-shorter', 'englint-formal', 'englint-voice', 'englint-synonyms', 'englint-custom'].map(menuRequest)).not.toContain(null);
     expect(menuRequest(byTitle('EngLint'))).toBeNull();
-    expect(menuRequest(String(created.find((c) => c.type === 'separator')!.id))).toBeNull();
+    expect(menuRequest(byTitle('Shorten'))).toBeNull();
+    expect(menuRequest(byTitle('Tone'))).toBeNull();
+    expect(menuRequest(byTitle('More'))).toBeNull();
+    expect(menuRequest('englint-clearer')).toBeNull();
     expect(menuRequest('something-else')).toBeNull();
   });
 });
@@ -130,7 +127,7 @@ describe('a menu click', () => {
     expect(deps.openTools).not.toHaveBeenCalled();
   });
 
-  it('Custom instruction… on page text stashes the text with no request', async () => {
+  it('Ask anything… on page text stashes the text with no request', async () => {
     const { launcher, deps } = setup();
     await launcher.menuClicked(click('englint-custom', false, { selectionText: 'A sentence.' }), TAB);
     expect(deps.openPanel).toHaveBeenCalledWith(7);

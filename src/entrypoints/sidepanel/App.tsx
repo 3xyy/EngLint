@@ -1,15 +1,18 @@
-import { useRef, useState } from 'react';
-import type { LocatedIssue } from '../../core/types';
+import { useId, useState } from 'react';
+import type { FamilyToggle, LocatedIssue } from '../../core/types';
 import { sendMessage } from '../../shared/messages';
 import { APPLY_FAILED_COPIED, SPEND_NOT_TRACKED, spendText, UNREACHABLE_FIELD } from '../../shared/status-text';
-import { StatusBanner } from '../../shared/ui/StatusBanner';
+import { StatusBanner, StatusPill } from '../../shared/ui/StatusBanner';
 import { pageStatus } from '../../shared/page-status';
 import { keyNeeded, spendTracked } from '../../core/provider';
 import { disabledSitesItem, providerItem } from '../../shared/settings';
 import { isSiteDisabled } from '../../core/sites';
+import { familyName, shownFamily } from '../../core/kinds';
 import { suggestionToggle } from '../../core/match';
 import { BadgeToggle } from '../../shared/ui/BadgeToggle';
+import { Button, DiffPreview, IconButton, Segmented, TypeLabel, type SegmentedOption } from '../../shared/ui/controls';
 import { FamilyToggles } from '../../shared/ui/FamilyToggles';
+import { CheckIcon, SparkleIcon, TargetIcon, XIcon } from '../../shared/ui/icons';
 import { LocalChecksToggle } from '../../shared/ui/LocalChecksToggle';
 import { YourRules } from '../../shared/ui/YourRules';
 import { useKeyStatus } from '../../shared/use-key-status';
@@ -22,46 +25,35 @@ import { Tools } from './Tools';
 import './panel.css';
 
 type PanelTab = 'issues' | 'tools' | 'chat' | 'review';
-const TABS: { id: PanelTab; label: string }[] = [
-  { id: 'issues', label: 'Issues' },
-  { id: 'tools', label: 'Tools' },
-  { id: 'chat', label: 'Chat' },
-  { id: 'review', label: 'Review' },
-];
+/** The panel's sections as tabs (a segmented control): arrow keys, Home and End move between them. */
+const TABS: readonly SegmentedOption<PanelTab>[] = (['issues', 'tools', 'chat', 'review'] as const).map((id) => ({
+  value: id,
+  label: id[0]!.toUpperCase() + id.slice(1),
+  id: `tab-${id}`,
+  controls: `pane-${id}`,
+}));
 
-/** The panel's sections as tabs: arrow keys, Home and End move between them (the ARIA tabs pattern). */
-function TabBar({ tab, onChange }: { tab: PanelTab; onChange(tab: PanelTab): void }) {
-  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
-  return (
-    <div role="tablist" aria-label="Panel sections" className="tabs">
-      {TABS.map((t, i) => (
-        <button
-          key={t.id}
-          ref={(el) => {
-            buttons.current[i] = el;
-          }}
-          type="button"
-          role="tab"
-          id={`tab-${t.id}`}
-          className="tab"
-          aria-selected={tab === t.id}
-          aria-controls={`pane-${t.id}`}
-          tabIndex={tab === t.id ? 0 : -1}
-          onClick={() => onChange(t.id)}
-          onKeyDown={(e) => {
-            const to = ({ ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: TABS.length - 1 } as Record<string, number>)[e.key];
-            if (to === undefined) return;
-            e.preventDefault();
-            const at = (to + TABS.length) % TABS.length;
-            onChange(TABS[at]!.id);
-            buttons.current[at]?.focus();
-          }}
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
-  );
+/** As many words before an issue as the model and the local checker keep (prompts/live-check.ts, precedingWords). */
+const BEFORE_WORDS = 5;
+
+/**
+ * The text a card shows before its change. The panel never gets the field's text, only each issue's `before` (the
+ * words just before it, already in the tab state): "…" leads when it holds as many words as are kept (the sentence
+ * goes on before them), and a space separates it from the change unless the change starts with punctuation or
+ * `before` ends with an opening quote or bracket.
+ */
+export function contextBefore(before: string, original: string): string {
+  const words = before.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  const text = (words.length >= BEFORE_WORDS ? '…' : '') + words.join(' ');
+  const joined = /^[,.;:!?)\]}’”%…]/.test(original) || /[(\[{“‘]$/.test(text);
+  return joined ? text : `${text} `;
+}
+
+/** What a card's buttons act on, for screen readers (the buttons' own names are one word, as their tooltips). */
+function changeText(issue: LocatedIssue): string {
+  if (issue.replacement === null) return `About '${issue.original}'`;
+  return issue.replacement === '' ? `Delete '${issue.original}'` : `Replace '${issue.original}' with '${issue.replacement}'`;
 }
 
 function Item({
@@ -77,62 +69,81 @@ function Item({
   onRewrite(): void;
   onDismiss(): void;
 }) {
+  const changeId = useId();
+  const note = issue.replacement === null;
   const stop = (fn: () => void) => (e: React.MouseEvent) => {
     e.stopPropagation();
     fn();
   };
   return (
-    // Clicking the non-button area jumps (mouse convenience); keyboard and screen readers use the Go-to button.
-    <li className="item" onClick={onJump}>
-      <div className="item-fixrow">
-        {issue.replacement === null ? (
-          <button type="button" className="item-rewrite" onClick={stop(onRewrite)}>
-            Rewrite this sentence
-          </button>
-        ) : issue.replacement === '' ? (
-          <button type="button" className="item-fix delete" aria-label={`Delete '${issue.original}'`} onClick={stop(onAccept)}>
-            <s>{issue.original}</s>
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="item-fix"
-            aria-label={`Replace '${issue.original}' with '${issue.replacement}'`}
-            onClick={stop(onAccept)}
-          >
-            {issue.replacement}
-          </button>
-        )}
-      </div>
-      <div className="item-bar">
-        <button
-          type="button"
-          className="item-goto"
-          aria-label={`Go to '${issue.original}'`}
-          title="Show in text"
-          onClick={stop(onJump)}
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="8" cy="8" r="5" />
-            <path d="M8 1v3M8 12v3M1 8h3M12 8h3" />
-          </svg>
-        </button>
-        <button type="button" className="item-dismiss" aria-label={`Dismiss '${issue.original}'`} onClick={stop(onDismiss)}>
-          Dismiss
-        </button>
+    // Clicking the card outside its buttons jumps (mouse convenience); keyboard and screen readers use Show in text.
+    <li className={`item el-fam-${shownFamily(issue)}`} data-issue={issue.id} onClick={onJump}>
+      <TypeLabel issue={issue} className="item-type" />
+      <DiffPreview
+        className="item-diff"
+        before={contextBefore(issue.before, issue.original)}
+        after=""
+        original={issue.original}
+        replacement={issue.replacement}
+      />
+      <span id={changeId} className="sr-only">
+        {changeText(issue)}
+      </span>
+      {/* The reason, with the buttons beside its last line; a note's wider Rewrite button goes on a row of its own. */}
+      <div className={note ? 'item-foot item-foot-note' : 'item-foot'}>
+        {issue.reason && <p className="item-why">{issue.reason}</p>}
+        <div className="item-actions">
+          {note ? (
+            <Button size="sm" className="item-rewrite" aria-describedby={changeId} onClick={stop(onRewrite)}>
+              <SparkleIcon size={14} />
+              Rewrite sentence
+            </Button>
+          ) : (
+            <IconButton label="Accept" icon={<CheckIcon />} className="item-accept" aria-describedby={changeId} onClick={stop(onAccept)} />
+          )}
+          <IconButton label="Dismiss" icon={<XIcon />} aria-describedby={changeId} onClick={stop(onDismiss)} />
+          <IconButton label="Show in text" icon={<TargetIcon />} tipAlign="end" aria-describedby={changeId} onClick={stop(onJump)} />
+        </div>
       </div>
     </li>
   );
 }
 
-function Group({ title, issues, render }: { title: string; issues: LocatedIssue[]; render: (i: LocatedIssue) => React.ReactNode }) {
+function Group({
+  title,
+  family,
+  issues,
+  render,
+}: {
+  title: string;
+  family: FamilyToggle | 'correctness';
+  issues: LocatedIssue[];
+  render: (i: LocatedIssue) => React.ReactNode;
+}) {
   if (issues.length === 0) return null;
-  const heading = `${title} (${issues.length})`;
   return (
-    <section className="group" aria-label={heading}>
-      <h2>{heading}</h2>
-      <ul>{issues.map(render)}</ul>
+    <section className="group" aria-label={`${title} (${issues.length})`}>
+      <h2 className="panel-group-head">
+        <span className={`el-dot el-fam-${family}`} aria-hidden="true" />
+        <span className="panel-group-name">{title}</span> <span className="panel-count">{issues.length}</span>
+      </h2>
+      <ul className="items">{issues.map(render)}</ul>
     </section>
+  );
+}
+
+/** This month's spend: the text, after a thin bar filled to its share of the limit (none when spending isn't tracked). */
+function SpendMeter({ spend, tracked }: { spend: { spent: number; cap: number } | null; tracked: boolean }) {
+  if (!spend) return <footer className="panel-foot">{' '}</footer>;
+  if (!tracked) return <footer className="panel-foot">{SPEND_NOT_TRACKED}</footer>;
+  const share = spend.cap > 0 ? Math.min(1, spend.spent / spend.cap) : 1;
+  return (
+    <footer className="panel-foot">
+      <span className="panel-spend" aria-hidden="true" data-full={share >= 1 ? '' : undefined}>
+        <span className="panel-spend-fill" style={{ width: `${Math.round(share * 10000) / 100}%` }} />
+      </span>
+      {spendText(spend.spent, spend.cap)}
+    </footer>
   );
 }
 
@@ -145,27 +156,22 @@ export function App() {
   const provider = useSetting(providerItem);
   const [message, setMessage] = useState<string | null>(null);
   const [tab, setTab] = useState<PanelTab>('issues');
-  const status =
-    key && spend && disabled && provider
-      ? pageStatus({
-          tabState: state,
-          keySaved: key.saved || !keyNeeded(provider), // a local server needs no key
-          spent: spend.spent,
-          cap: spend.cap,
-          siteDisabled: !!state && isSiteDisabled(disabled, state.host),
-        })
-      : 'ok';
+  const known = !!(key && spend && disabled && provider);
+  const status = known
+    ? pageStatus({
+        tabState: state,
+        keySaved: key!.saved || !keyNeeded(provider!), // a local server needs no key
+        spent: spend!.spent,
+        cap: spend!.cap,
+        siteDisabled: !!state && isSiteDisabled(disabled!, state.host),
+      })
+    : 'ok';
 
   const fieldId = state ? (state.activeFieldId ?? Object.keys(state.fields)[0] ?? null) : null;
   const issues = state && fieldId ? (state.fields[fieldId] ?? []) : [];
   const errors = issues.filter((i) => i.severity === 'error');
-  // Grouped by the same toggle the underlines use; generic phrasing is a Delivery item.
-  const inGroup = (family: 'clarity' | 'engagement' | 'delivery') =>
-    issues.filter((i) => {
-      if (i.severity === 'error') return false;
-      const t = suggestionToggle(i);
-      return (t === 'generic' ? 'delivery' : t) === family;
-    });
+  // Grouped by the same toggle the underlines use, under the names the cards give: generic phrasing apart.
+  const inGroup = (family: FamilyToggle) => issues.filter((i) => i.severity !== 'error' && suggestionToggle(i) === family);
 
   /** Runs a message to the field's frame; a gone frame or script becomes an inline note, never a crash. */
   async function toField<T>(fn: (target: { tabId: number; frameId: number }) => Promise<T>): Promise<T | undefined> {
@@ -219,41 +225,55 @@ export function App() {
 
   return (
     <main className="panel">
-      <header>
-        <h1>EngLint</h1>
+      <header className="panel-head">
+        <h1 className="panel-mark">EngLint</h1>
+        {known && <StatusPill status={status} active={!!state} className="panel-pill" />}
       </header>
 
       <StatusBanner status={status} spend={spend} />
       {message && <p className="notice" role="alert">{message}</p>}
 
-      <TabBar tab={tab} onChange={setTab} />
+      <Segmented as="tab" label="Panel sections" options={TABS} value={tab} onChange={setTab} className="panel-tabs" />
 
       {/* Every pane stays mounted: the Tools keep watching for a stash, and an answer keeps streaming. */}
       <div role="tabpanel" id="pane-issues" aria-labelledby="tab-issues" className="pane" hidden={tab !== 'issues'}>
-        <div className="actions">
-          <button type="button" className="btn" disabled={errors.length === 0} onClick={() => void acceptAll()}>
+        <div className="panel-toolbar">
+          <Button size="sm" disabled={errors.length === 0} onClick={() => void acceptAll()}>
             Accept all errors
-          </button>
-          <button type="button" className="btn" disabled={!state} onClick={() => void checkEverything()}>
+            {errors.length > 0 && (
+              <>
+                {' '}
+                <span className="panel-count">{errors.length}</span>
+              </>
+            )}
+          </Button>
+          <Button size="sm" disabled={!state} onClick={() => void checkEverything()}>
             Check everything
-          </button>
+          </Button>
         </div>
 
-        <Group title="Errors" issues={errors} render={render} />
-        <Group title="Clarity" issues={inGroup('clarity')} render={render} />
-        <Group title="Engagement" issues={inGroup('engagement')} render={render} />
-        <Group title="Delivery" issues={inGroup('delivery')} render={render} />
-        {status === 'ok' && state && issues.length === 0 && <p className="muted">No issues in this text box.</p>}
-        {!state && status === 'ok' && <p className="muted">Click into a text box to start checking.</p>}
+        <Group title={familyName('correctness')} family="correctness" issues={errors} render={render} />
+        {(['clarity', 'engagement', 'delivery', 'generic'] as const).map((family) => (
+          <Group key={family} title={familyName(family)} family={family} issues={inGroup(family)} render={render} />
+        ))}
+        {status === 'ok' && state && issues.length === 0 && (
+          <div className="panel-empty">
+            <CheckIcon size={20} />
+            <p>Nothing to fix here.</p>
+          </div>
+        )}
+        {!state && status === 'ok' && <p className="muted panel-hint">Click into a text box to start checking.</p>}
 
         <details className="panel-settings">
           <summary>Settings</summary>
-          <FamilyToggles />
-          <LocalChecksToggle />
-          <h3>Your rules</h3>
-          <YourRules />
-          <h3>On the page</h3>
-          <BadgeToggle />
+          <div className="panel-settings-body">
+            <FamilyToggles />
+            <LocalChecksToggle />
+            <h3>Your rules</h3>
+            <YourRules />
+            <h3>On the page</h3>
+            <BadgeToggle />
+          </div>
         </details>
       </div>
 
@@ -282,13 +302,13 @@ export function App() {
             errors: errors.length,
             clarity: inGroup('clarity').length,
             engagement: inGroup('engagement').length,
-            delivery: inGroup('delivery').length,
+            delivery: inGroup('delivery').length + inGroup('generic').length, // the Overview counts generic phrasing as Delivery
           }}
           spend={spend}
         />
       </div>
 
-      <footer className="muted">{!spend ? ' ' : provider && !spendTracked(provider) ? SPEND_NOT_TRACKED : spendText(spend.spent, spend.cap)}</footer>
+      <SpendMeter spend={spend} tracked={!provider || spendTracked(provider)} />
     </main>
   );
 }

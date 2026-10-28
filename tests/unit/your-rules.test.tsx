@@ -11,7 +11,7 @@ describe('YourRules', () => {
   it('says what to do when there is nothing yet', async () => {
     const { container } = render(<YourRules />);
     await waitFor(() =>
-      expect(container.textContent).toContain('Nothing here yet. Use “Stop suggesting” or “Add to dictionary” on a card.'),
+      expect(container.textContent).toContain("Nothing here yet. Use Stop suggesting or Add “word” to dictionary in a card's ⋯ menu."),
     );
     expect(container.querySelector('button')).toBeNull();
   });

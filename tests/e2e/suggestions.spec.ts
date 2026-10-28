@@ -1,6 +1,7 @@
 import type { Locator, Page, Worker } from '@playwright/test';
 import { clarityOn, expect, test } from './fixtures';
 import { type MockReply, paragraphsOf } from './mock-anthropic';
+import { rgba } from './pixels';
 
 // Suggestion families on the page: their underline styles, the family toggles and the card's "Stop suggesting"
 // and "Add to dictionary" (with the undo chip) re-filtering held results with no new request, a curled
@@ -50,6 +51,16 @@ const stored = (sw: Worker, key: string) => sw.evaluate((key) => chrome.storage.
 const underline = (page: Page, cls = '') => page.locator(`.englint-underline${cls}`);
 const card = (page: Page) => page.locator('.englint-card');
 const chip = (page: Page) => page.locator('.englint-undo');
+/** Opens the card's "⋯" menu; its items are the setting action, then "Rewrite sentence". */
+async function openMenu(page: Page): Promise<Locator> {
+  await card(page).getByRole('button', { name: 'More actions' }).click();
+  return card(page).getByRole('menuitem');
+}
+/** Picks `name` from the card's "⋯" menu. */
+async function pickFromMenu(page: Page, name: string): Promise<void> {
+  await openMenu(page);
+  await card(page).getByRole('menuitem', { name }).click();
+}
 
 async function typeIn(page: Page, selector: string, text: string): Promise<void> {
   await page.locator(selector).click();
@@ -69,15 +80,6 @@ const style = (el: Locator, pseudo?: string) =>
     return { image: cs.backgroundImage, color: cs.backgroundColor };
   }, pseudo);
 
-/** The element's width against its label's width plus its horizontal padding. */
-const labelFit = (el: Locator) =>
-  el.evaluate((node) => {
-    const range = document.createRange();
-    range.selectNodeContents(node);
-    const cs = getComputedStyle(node);
-    return { width: node.getBoundingClientRect().width, label: range.getBoundingClientRect().width, padding: parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) };
-  });
-
 const settled = (el: Locator) => el.evaluate((node) => Promise.all(node.getAnimations().map((a) => a.finished)));
 
 test('Engagement, Delivery and Generic phrasing underlines draw in their own classes, colours and names', async ({ page, pagesURL, mock, serviceWorker }) => {
@@ -87,26 +89,48 @@ test('Engagement, Delivery and Generic phrasing underlines draw in their own cla
   await typeIn(page, '#ta', FOUR_FAMILIES);
   await expect(underline(page, '.suggestion')).toHaveCount(4, { timeout: 3000 });
 
+  // The light scheme's family colours: an underline lies on the page, whatever the system's scheme.
   const families = [
-    { cls: '.fam-clarity', label: 'Clarity suggestion', gradient: 'radial-gradient', color: 'rgb(26, 115, 232)', active: 'rgb(24, 90, 188)', tint: 'rgba(26, 115, 232, 0.14)' },
-    { cls: '.fam-engagement', label: 'Engagement suggestion', gradient: 'radial-gradient', color: 'rgb(24, 128, 56)', active: 'rgb(13, 101, 45)', tint: 'rgba(24, 128, 56, 0.14)' },
-    { cls: '.fam-delivery', label: 'Delivery suggestion', gradient: 'radial-gradient', color: 'rgb(132, 48, 206)', active: 'rgb(104, 29, 168)', tint: 'rgba(132, 48, 206, 0.14)' },
-    { cls: '.fam-generic', label: 'Generic phrasing', gradient: 'linear-gradient', color: 'rgb(132, 48, 206)', active: 'rgb(104, 29, 168)', tint: 'rgba(132, 48, 206, 0.14)' },
+    { cls: '.fam-clarity', label: 'Clarity suggestion', rgb: [37, 99, 235] },
+    { cls: '.fam-engagement', label: 'Engagement suggestion', rgb: [22, 163, 74] },
+    { cls: '.fam-delivery', label: 'Delivery suggestion', rgb: [147, 51, 234] },
+    { cls: '.fam-generic', label: 'Generic phrasing', rgb: [234, 88, 12] },
   ];
   for (const f of families) {
     const u = underline(page, `.suggestion${f.cls}`);
+    const colour = `rgb(${f.rgb.join(', ')})`;
     await expect(u).toHaveCount(1);
     await expect(u).toHaveAttribute('aria-label', f.label);
+    await expect(u).toHaveAttribute('data-line', 'dotted');
     const { image } = await style(u, '::before');
-    expect(image).toContain(f.gradient);
-    expect(image).toContain(f.color);
+    expect(image).toContain('radial-gradient');
+    expect(image).toContain(colour);
+    expect((await u.boundingBox())!.height).toBeCloseTo(2, 0);
 
-    // Hovered: darker in its own colour, under a tint of its own colour.
+    // Hovered: 1px thicker in its own colour, under a tint of its own colour.
     await pointAt(u);
     await expect(underline(page, `${f.cls}.active`)).toHaveCount(1);
-    expect((await style(underline(page, `${f.cls}.active`), '::before')).image).toContain(f.active);
-    expect((await style(page.locator(`.englint-tint${f.cls}`))).color).toBe(f.tint);
+    await expect.poll(async () => (await underline(page, `${f.cls}.active`).boundingBox())!.height).toBeCloseTo(3, 0);
+    expect((await style(underline(page, `${f.cls}.active`), '::before')).image).toContain(colour);
+    expect(rgba((await style(page.locator(`.englint-tint${f.cls}`))).color)).toEqual([...f.rgb, 0.14]);
   }
+
+  // Under the system's dark scheme the page stays white, and the underlines keep these colours.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  expect((await style(underline(page, '.fam-engagement'), '::before')).image).toContain('rgb(22, 163, 74)');
+});
+
+test('a comment-only note is dashed, in its family\u2019s colour', async ({ page, pagesURL, mock, serviceWorker }) => {
+  await setFamilies(serviceWorker, ALL_ON);
+  mock.respond(answering({ ...REPEAT, replacement: null }));
+  await page.goto(`${pagesURL}/textarea.html`);
+  await typeIn(page, '#ta', 'It was very very good.');
+  const u = underline(page, '.fam-engagement');
+  await expect(u).toHaveCount(1, { timeout: 3000 });
+  await expect(u).toHaveAttribute('data-line', 'dashed');
+  const { image } = await style(u, '::before');
+  expect(image).toContain('linear-gradient');
+  expect(image).toContain('rgb(22, 163, 74)');
 });
 
 test('turning Engagement off in storage hides its underline within 500 ms with no new request; on again brings it back', async ({
@@ -148,13 +172,12 @@ test('"Stop suggesting …" hides the underline and shows the undo chip where th
   await pointAt(underline(page, '.fam-clarity'));
   await expect(card(page)).toBeVisible();
   await settled(card(page)); // measured at full size
-  const stop = card(page).getByRole('button', { name: 'Stop suggesting wordy phrases' });
-  await expect(card(page).getByRole('button')).toHaveText(['To', 'Dismiss', 'Stop suggesting wordy phrases']);
-  const fit = await labelFit(stop);
-  expect(Math.abs(fit.width - fit.label - fit.padding)).toBeLessThanOrEqual(1); // only as wide as its label
+  await expect(card(page).locator('.englint-card-preview ins')).toHaveText('To');
+  await expect(card(page).getByRole('button')).toHaveText(['', 'Accept', 'Dismiss']); // "⋯" first, an icon
   const cardBox = (await card(page).boundingBox())!;
+  await expect(await openMenu(page)).toHaveText(['Stop suggesting wordy phrases', 'Rewrite sentence']);
 
-  await stop.click();
+  await card(page).getByRole('menuitem', { name: 'Stop suggesting wordy phrases' }).click();
   await expect(card(page)).toHaveCount(0);
   await expect(underline(page)).toHaveCount(0);
   await expect(chip(page)).toBeVisible();
@@ -184,7 +207,7 @@ test('the undo chip closes after 5 s, on Esc, and on a click elsewhere; the sett
   await expect(underline(page, '.fam-clarity')).toHaveCount(3, { timeout: 3000 });
   const stop = async (index: number, label: string) => {
     await pointAt(underline(page, '.fam-clarity').nth(index));
-    await card(page).getByRole('button', { name: `Stop suggesting ${label}` }).click();
+    await pickFromMenu(page, `Stop suggesting ${label}`);
     await expect(chip(page)).toHaveText(`Stopped suggesting ${label}.Undo`);
   };
 
@@ -255,7 +278,7 @@ test('the undo chip covers text in the fixed layer: the pointer on it hovers not
 
   await pointAt(underline(page, '.fam-clarity').first());
   await expect(card(page)).toHaveAttribute('data-side', 'below');
-  await card(page).getByRole('button', { name: 'Stop suggesting wordy phrases' }).click();
+  await pickFromMenu(page, 'Stop suggesting wordy phrases');
   await expect(chip(page)).toBeVisible();
   await settled(chip(page));
   // Where the card was, below the first line, the chip covers the next line's underline.
@@ -270,7 +293,7 @@ test('the undo chip covers text in the fixed layer: the pointer on it hovers not
   await expect(chip(page)).toBeVisible();
 });
 
-test('"Add to dictionary" hides the spelling underline and stores the lowercased word', async ({ page, pagesURL, mock, serviceWorker }) => {
+test('"Add “Kubernetes” to dictionary" hides the spelling underline and stores the lowercased word', async ({ page, pagesURL, mock, serviceWorker }) => {
   mock.respond(answering(KUBERNETES));
   await page.goto(`${pagesURL}/textarea.html`);
   await typeIn(page, '#ta', 'We deploy on Kubernetes daily.');
@@ -278,8 +301,10 @@ test('"Add to dictionary" hides the spelling underline and stores the lowercased
   const requests = mock.requests.length;
 
   await pointAt(underline(page, '.error'));
-  await expect(card(page).getByRole('button')).toHaveText(['Kubernets', 'Dismiss', 'Add to dictionary']);
-  await card(page).getByRole('button', { name: 'Add to dictionary' }).click();
+  await expect(card(page).locator('.englint-card-preview ins')).toHaveText('Kubernets');
+  await expect(card(page).getByRole('button')).toHaveText(['', 'Accept', 'Dismiss']);
+  await expect(await openMenu(page)).toHaveText(['Add “Kubernetes” to dictionary', 'Rewrite sentence']);
+  await card(page).getByRole('menuitem', { name: 'Add “Kubernetes” to dictionary' }).click();
   await expect(underline(page)).toHaveCount(0);
   await expect(chip(page)).toHaveText('Added “Kubernetes” to your dictionary.Undo');
   expect(await stored(serviceWorker, 'dictionary')).toEqual({ dictionary: ['kubernetes'] });
@@ -314,8 +339,8 @@ test('a curled apostrophe inside a suggestion: "don’t really" is underlined fr
   expect(Math.abs(box.width - want.width)).toBeLessThan(2);
 
   await pointAt(underline(page, '.fam-clarity'));
-  await expect(card(page).locator('.englint-card-fix')).toHaveText('don’t');
-  await card(page).locator('.englint-card-fix').click();
+  await expect(card(page).locator('.englint-card-preview ins')).toHaveText('don’t');
+  await card(page).locator('.englint-card-accept').click();
   await expect(page.locator('#ce')).toHaveText('I don’t know.');
 });
 
@@ -394,8 +419,9 @@ test('a generic-phrasing tell is underlined from the text alone, before any Clau
   expect(mock.requests.length).toBe(0);
 
   await pointAt(underline(page, '.fam-generic'));
-  await expect(card(page).getByRole('button')).toHaveText(['is', 'Dismiss', 'Stop suggesting generic phrasing']);
-  await page.locator('.englint-card-fix').click();
+  await expect(card(page).locator('.englint-card-preview ins')).toHaveText('is');
+  await expect(await openMenu(page)).toHaveText(['Stop suggesting generic phrasing', 'Rewrite sentence']);
+  await page.locator('.englint-card-accept').click();
   await expect(page.locator('#ta')).toHaveValue('The library is a meeting place.');
   await expect(underline(page)).toHaveCount(0);
 });

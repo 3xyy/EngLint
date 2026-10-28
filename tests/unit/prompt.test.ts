@@ -62,6 +62,14 @@ describe('live-check prompt', () => {
     expect(sys('essay', 'en-US').modeBlock.text).toMatch(/The kinds [^:]*vague_word[^:]* are comment-only in Essay/);
     expect(sys('standard', 'en-US').modeBlock.text).not.toContain('comment-only');
   });
+  it('wordy_phrase turns a noun phrase built on a weak verb into the verb, under Clarity', () => {
+    const t = sys('standard', 'en-US').stable.text;
+    const line = t.split('\n').find((l) => l.startsWith('- wordy_phrase:'))!;
+    expect(line).toContain('(category "clarity")');
+    expect(line).toContain('A weak verb plus a noun that names the action is a wordy_phrase too: turn it into that verb ("make a decision about" -> "decide", "give consideration to" -> "consider")');
+    // The definition before it is unchanged.
+    expect(line).toContain('a stock wordy phrase with a standard shorter equivalent that means exactly the same ("in order to" -> "to"); never cut words that carry information, and an intensifier before a bland word ("very good") is vague_word instead.');
+  });
   it('every suggestion kind has its own definition', () => {
     for (const k of KINDS.filter((k) => k.family !== 'correctness')) expect(KIND_DEFINITION[k.kind], k.kind).toBeTruthy();
   });
@@ -141,7 +149,7 @@ describe('live-check prompt', () => {
     expect(t.modeBlock.text).toContain('missing capitals');
   });
   it('has a prompt version and enough kinds', () => {
-    expect(PROMPT_VERSION).toBe('lc-9'); // lc-9: "Stop suggesting" rules leave the prompt; the dictionary stays
+    expect(PROMPT_VERSION).toBe('lc-10'); // lc-10: a noun phrase built on a weak verb becomes the verb (wordy_phrase)
     expect(KINDS.length).toBeGreaterThanOrEqual(20);
     expect(KINDS.find((k) => k.kind === 'spelling')?.ruleEligible).toBe(false);
     expect(KINDS.find((k) => k.kind === 'oxford_comma')?.ruleEligible).toBe(true);

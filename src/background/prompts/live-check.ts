@@ -11,9 +11,10 @@ import { asData } from './rewrite';
  * mode allows is always requested; the family toggles filter on the client only. lc-7: the writer's dictionary and
  * "Stop suggesting" rules ride in a third block of their own. lc-8: a stopped kind holds back suggestions only. lc-9:
  * the rules leave the prompt and stay a client filter (selectIssues): told about them, the model also held back real
- * errors in the same wording. The dictionary stays.
+ * errors in the same wording. The dictionary stays. lc-10: a noun phrase built on a weak verb is a wordy_phrase, turned
+ * into the verb ("make a decision about" -> "decide").
  */
-export const PROMPT_VERSION = 'lc-9';
+export const PROMPT_VERSION = 'lc-10';
 
 /** What the writer taught EngLint that the prompt carries: the dictionary, in storage order (oldest first). */
 export interface Learned {
@@ -29,7 +30,7 @@ const EPHEMERAL = { type: 'ephemeral' } as const;
 const FAMILY_TITLE: Record<SuggestionFamily, string> = { clarity: 'Clarity', engagement: 'Engagement', delivery: 'Delivery' };
 
 export const KIND_DEFINITION: Record<string, string> = {
-  wordy_phrase: 'a stock wordy phrase with a standard shorter equivalent that means exactly the same ("in order to" -> "to"); never cut words that carry information, and an intensifier before a bland word ("very good") is vague_word instead',
+  wordy_phrase: 'a stock wordy phrase with a standard shorter equivalent that means exactly the same ("in order to" -> "to"); never cut words that carry information, and an intensifier before a bland word ("very good") is vague_word instead. A weak verb plus a noun that names the action is a wordy_phrase too: turn it into that verb ("make a decision about" -> "decide", "give consideration to" -> "consider")',
   redundancy: 'two words in one phrase that say the same thing, so one can go ("past history"); a word repeated across a sentence is repeated_word, and a stock opener or transition is generic_phrasing',
   long_sentence: 'a sentence so long the reader loses the thread; comment only',
   passive_voice: 'a passive verb (a form of "be" plus a past participle) whose actor is named in a "by" phrase, where the active form is clearly better; never an ordinary active verb, and leave alone any passive with no "by" phrase',

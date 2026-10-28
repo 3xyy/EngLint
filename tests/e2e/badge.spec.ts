@@ -68,13 +68,19 @@ async function typeInField(page: Page, pagesURL: string, text: string): Promise<
   await page.keyboard.type(text);
 }
 
-test('a textarea with two errors shows "2" in its bottom-right corner, 6 px in, inside the field', async ({ page, pagesURL, mock }) => {
+test('a textarea with two errors shows "2" in its bottom-right corner, 6 px in, inside the field, opaque while the pointer is over the field', async ({
+  page,
+  pagesURL,
+  mock,
+}) => {
   mock.respond(textErrors);
   await typeInField(page, pagesURL, 'I has a cat. She go home.');
 
   await expect(badge(page)).toHaveText('2', { timeout: 5000 });
   await expect(badge(page)).toHaveAttribute('aria-label', 'EngLint: 2 errors, 0 suggestions');
-  await expect(badge(page)).toHaveCSS('opacity', '0.6'); // 60% until hovered
+  await expect(badge(page)).toHaveCSS('opacity', '1'); // the pointer is still over the field the click focused
+  await page.mouse.move(2, 2);
+  await expect(badge(page)).toHaveCSS('opacity', '0.6'); // 60% while the pointer is off the field
   const box = (await badge(page).boundingBox())!;
   const field = await clientBox(page, '#ta');
   expect([box.width, box.height]).toEqual([20, 20]);
@@ -86,6 +92,10 @@ test('a textarea with two errors shows "2" in its bottom-right corner, 6 px in, 
   expect(box.x + box.width).toBeLessThan(field.border.left + field.border.width);
   expect(box.y + box.height).toBeLessThan(field.border.top + field.border.height);
 
+  await page.mouse.move(field.border.left + 20, field.border.top + 20);
+  await expect(badge(page)).toHaveCSS('opacity', '1'); // the pointer over its field
+  await page.mouse.move(2, 2);
+  await expect(badge(page)).toHaveCSS('opacity', '0.6');
   await badge(page).hover();
   await expect(badge(page)).toHaveCSS('opacity', '1');
 });

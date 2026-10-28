@@ -57,6 +57,11 @@ const docsErrors = issuesFor((t) => [
 const FALLBACK_NOTICE = "Google Docs live checking isn't available right now.";
 const errorUnderlines = (page: Page) => page.locator('.englint-underline.error');
 const card = (page: Page) => page.locator('.englint-card');
+/** Picks `name` from the card's "⋯" menu (its setting action, "Rewrite sentence"). */
+async function pickFromMenu(page: Page, name: string): Promise<void> {
+  await card(page).getByRole('button', { name: 'More actions' }).click();
+  await card(page).getByRole('menuitem', { name }).click();
+}
 const docText = (page: Page) => page.evaluate(() => (window as any).fakeDocs.text() as string);
 
 async function openDocs(page: Page, pagesURL: string, query = ''): Promise<void> {
@@ -590,7 +595,7 @@ test('accepting from the card pastes the fix through the text-event iframe', asy
 
   await pointAt(page, 'has');
   await expect(card(page)).toBeVisible();
-  await page.locator('.englint-card-fix').click();
+  await page.locator('.englint-card-accept').click();
 
   await expect.poll(() => docText(page)).toContain('I have a cat');
   expect(await page.evaluate(() => (window as any).fakeDocs.pastes)).toEqual(['have']);
@@ -761,7 +766,7 @@ test('a caret key inside an issue opens its card', async ({ page, pagesURL, mock
   await openDocs(page, pagesURL);
   await expectUnderlineUnder(page, 'has');
   await openHasCardAtCaret(page);
-  await expect(page.locator('.englint-card-fix')).toHaveText('have');
+  await expect(page.locator('.englint-card-preview ins')).toHaveText('have');
 });
 
 test('Esc in the doc closes the card', async ({ page, pagesURL, mock }) => {
@@ -798,7 +803,7 @@ test('the undo chip in the doc: typing leaves it, Esc closes it (both keys land 
   await openDocs(page, pagesURL);
   await expectUnderlineUnder(page, 'cat');
   await pointAt(page, 'cat');
-  await card(page).getByRole('button', { name: 'Add to dictionary' }).click();
+  await pickFromMenu(page, 'Add “cat” to dictionary');
   const chip = page.locator('.englint-undo');
   await expect(chip).toHaveText('Added “cat” to your dictionary.Undo');
   await expect(errorUnderlines(page)).toHaveCount(0);
@@ -821,7 +826,7 @@ test('the undo chip in the doc: typing leaves it, Esc closes it (both keys land 
   expect(await serviceWorker.evaluate(() => chrome.storage.local.get('dictionary'))).toEqual({ dictionary: ['cat'] }); // closed, not undone
 });
 
-/** A rule-eligible clarity suggestion on the second line: its card has the fix, Dismiss and "Stop suggesting wordy phrases". */
+/** A rule-eligible clarity suggestion on the second line: its card has Accept, Dismiss and "Stop suggesting wordy phrases" in its menu. */
 const SLEEP: Issue = {
   original: 'likes to sleep',
   replacement: 'sleeps',
@@ -849,19 +854,20 @@ test('the card keeps the side it opened on: near the bottom edge, moving onto it
   await expect(card(page)).toBeVisible();
   await settled(page, '.englint-card');
   const roomy = (await card(page).boundingBox())!;
+  const height = await card(page).evaluate((el) => (el as HTMLElement).offsetHeight); // what Card.tsx places by (a fraction rounded)
   expect(await card(page).getAttribute('data-side')).toBe('below');
   const textBottom = roomy.y - CARD_GAP;
   await page.mouse.move(1200, 60);
   await expect(card(page)).toHaveCount(0);
 
   // A viewport just 1 px too short for the card below its text.
-  await page.setViewportSize({ width: 1280, height: Math.ceil(textBottom + CARD_GAP + roomy.height + CARD_MARGIN) - 1 });
+  await page.setViewportSize({ width: 1280, height: Math.ceil(textBottom + CARD_GAP + height + CARD_MARGIN) - 1 });
   await pointAt(page, 'sleep');
   await expect(card(page)).toBeVisible();
   const opened = await card(page).evaluate((el) => ({ side: el.dataset.side, top: el.style.top }));
 
   // The pointer heads for the card where it opened, and rests on its bottom row.
-  const bar = (await card(page).locator('.englint-card-bar').boundingBox())!;
+  const bar = (await card(page).locator('.englint-card-actions').boundingBox())!;
   await page.mouse.move(bar.x + 20, bar.y + bar.height / 2, { steps: 4 });
   await page.waitForTimeout(400); // past the close delay
   await expect(card(page)).toBeVisible();
@@ -877,7 +883,7 @@ test('Undo in the doc: "Stop suggesting …" hides the underline, and Undo on th
   const requests = mock.requests.length;
 
   await pointAt(page, 'sleep');
-  await card(page).getByRole('button', { name: 'Stop suggesting wordy phrases' }).click();
+  await pickFromMenu(page, 'Stop suggesting wordy phrases');
   await expect(suggestionUnderlines(page)).toHaveCount(0);
   const chip = page.locator('.englint-undo');
   await expect(chip).toHaveText('Stopped suggesting wordy phrases.Undo');
@@ -905,7 +911,7 @@ test('near the bottom of the viewport the card opens above its text, and the und
   expect(await card(page).getAttribute('data-side')).toBe('above');
   const cardBox = (await card(page).boundingBox())!;
 
-  await card(page).getByRole('button', { name: 'Stop suggesting wordy phrases' }).click();
+  await pickFromMenu(page, 'Stop suggesting wordy phrases');
   const chip = page.locator('.englint-undo');
   await expect(chip).toBeVisible();
   await settled(page, '.englint-undo');
@@ -963,10 +969,9 @@ test('when Docs replaces its editor element, checking re-attaches to the new one
   expect(Object.keys(entry!.state.fields)).toEqual(['gdocs']);
 });
 
-const selectButton = (page: Page) => page.locator('.englint-select-btn');
-/** Selection button geometry: its gap after the selection's last rect, and its width. */
-const BUTTON_GAP = 4;
-const BUTTON_SIZE = 26;
+const selectionBar = (page: Page) => page.locator('.englint-bar');
+/** Selection bar geometry: its gap from the selection. */
+const BAR_GAP = 6;
 
 type HighlightBox = { left: number; right: number; top: number; bottom: number };
 const highlightBox = (page: Page): Promise<HighlightBox | null> => page.evaluate(() => (window as any).__highlightBox);
@@ -976,38 +981,44 @@ async function doubleClickWord(page: Page, word: string): Promise<void> {
   await page.mouse.dblclick((box.left + box.right) / 2, (box.top + box.bottom) / 2);
 }
 
-test('a double-clicked word on the canvas gets the selection button right after its painted highlight, where the measured word ends 3 px short', async ({
-  page,
-  pagesURL,
-}) => {
+/** How far the bar misses sitting just above `box` (or just below it, when there's no room above). */
+async function barMiss(page: Page, box: HighlightBox): Promise<{ x: number; y: number; side: string }> {
+  const bar = (await selectionBar(page).boundingBox())!;
+  const side = (await selectionBar(page).getAttribute('data-side')) ?? '';
+  const y = side === 'below' ? bar.y - (box.bottom + BAR_GAP) : bar.y + bar.height + BAR_GAP - box.top;
+  return { x: bar.x - box.left, y, side };
+}
+
+test('a double-clicked word on the canvas gets the selection bar just above its painted highlight', async ({ page, pagesURL }) => {
   await openDocs(page, pagesURL, '?canvas=1&justify=1');
   await expect(page.locator('.kix-appview-editor')).toBeVisible();
   await doubleClickWord(page, 'cat');
-  await expect(selectButton(page)).toBeVisible({ timeout: 3000 });
+  await expect(selectionBar(page)).toBeVisible({ timeout: 3000 });
 
   const highlight = (await highlightBox(page))!;
   expect(highlight).not.toBeNull();
-  const button = (await selectButton(page).boundingBox())!;
-  expect(Math.abs(button.x - BUTTON_GAP - highlight.right)).toBeLessThanOrEqual(1);
-  expect(Math.abs(button.y + BUTTON_SIZE / 2 - (highlight.top + highlight.bottom) / 2)).toBeLessThanOrEqual(1);
+  const miss = await barMiss(page, highlight);
+  expect(Math.abs(miss.x)).toBeLessThanOrEqual(4);
+  expect(Math.abs(miss.y)).toBeLessThanOrEqual(1);
 });
 
-test('collapsing the selection hides the button placed from the highlight', async ({ page, pagesURL }) => {
+test('collapsing the selection hides the bar placed from the highlight', async ({ page, pagesURL }) => {
   await openDocs(page, pagesURL, '?canvas=1&justify=1');
   await doubleClickWord(page, 'cat');
-  await expect(selectButton(page)).toBeVisible({ timeout: 3000 });
+  await expect(selectionBar(page)).toBeVisible({ timeout: 3000 });
   const line = await paintedBox(page, 'sofa.');
   await page.mouse.click(line.right + 20, (line.top + line.bottom) / 2);
   await expect.poll(() => highlightBox(page)).toBeNull(); // Docs repainted the tile without the highlight
-  await page.waitForTimeout(500); // past the selection debounce: a button for a stale selection would be up by now
-  await expect(selectButton(page)).toHaveCount(0);
+  await page.waitForTimeout(500); // past the selection debounce: a bar for a stale selection would be up by now
+  await expect(selectionBar(page)).toHaveCount(0);
 });
 
-test('when the highlight is not visible to the page (no recorder), the button is still placed from the range', async ({ page, pagesURL }) => {
+test('when the highlight is not visible to the page (no recorder), the bar is still placed from the range', async ({ page, pagesURL }) => {
   await openDocs(page, pagesURL, '?canvas=1&norecorder=1');
   await doubleClickWord(page, 'cat');
-  await expect(selectButton(page)).toBeVisible({ timeout: 3000 });
+  await expect(selectionBar(page)).toBeVisible({ timeout: 3000 });
   const highlight = (await highlightBox(page))!;
-  const button = (await selectButton(page).boundingBox())!;
-  expect(Math.abs(button.x - BUTTON_GAP - highlight.right)).toBeLessThanOrEqual(12);
+  const miss = await barMiss(page, highlight);
+  expect(Math.abs(miss.x)).toBeLessThanOrEqual(12);
+  expect(Math.abs(miss.y)).toBeLessThanOrEqual(12);
 });

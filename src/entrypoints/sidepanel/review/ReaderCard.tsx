@@ -3,6 +3,7 @@ import { READER_CHOICES, MAX_READER_CHARS, type ReaderChoice } from '../../../co
 import { costLabel, estimateCost, REVIEW_EXPECTED } from '../../../core/review-cost';
 import type { ReaderReaction } from '../../../core/review-schema';
 import { sendMessage } from '../../../shared/messages';
+import { Button } from '../../../shared/ui/controls';
 import { Quote } from '../Quote';
 import { REVIEW_COPY } from './copy';
 import type { Runs } from './runs';
@@ -54,9 +55,9 @@ export function ReaderCard({
           onChange={(e) => onForm({ picked, custom: e.target.value })}
         />
       )}
-      <button type="button" className="btn" disabled={!canRun} onClick={() => void run()}>
+      <Button size="sm" className="review-run" disabled={!canRun} onClick={() => void run()}>
         {cost ? C.runWithCost(cost) : C.run}
-      </button>
+      </Button>
       {cost === null && <p className="muted">{REVIEW_COPY.costUnknown}</p>}
       {current?.busy && <p className="muted" role="status">{REVIEW_COPY.reading}</p>}
       <Problem run={current} spend={spend} />

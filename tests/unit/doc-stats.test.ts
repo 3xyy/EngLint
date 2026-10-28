@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { docStats, formatDuration } from '../../src/core/doc-stats';
+import { countWords, docStats, formatDuration } from '../../src/core/doc-stats';
 
 // Five sentences of 12 words, all in plain words whose syllables are easy to count by hand:
 //   S1  We1 go1 to1 the1 old1 market2 and1 buy1 some1 fresh1 bread1 there1            = 13
@@ -170,5 +170,15 @@ describe('syllable counting through the Flesch score', () => {
     ['cat', 1],
   ])('counts %s as %i', (word, n) => {
     expect(score(word)).toBe(n === 1 ? 92 : 7);
+  });
+});
+
+describe('countWords', () => {
+  it('counts what docStats counts: runs of letters, digits and apostrophes', () => {
+    expect(countWords('')).toBe(0);
+    expect(countWords('  ,  — ')).toBe(0);
+    expect(countWords("I don't know, 12 times.")).toBe(5);
+    expect(countWords('a well-known café’s')).toBe(4);
+    expect(countWords(SIXTY)).toBe(docStats(SIXTY).words);
   });
 });

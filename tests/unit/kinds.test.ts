@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KINDS, RETIRED_KINDS, essayPolicy, familyOf, kindInfo, toggleOf } from '../../src/core/kinds';
+import { KINDS, RETIRED_KINDS, essayPolicy, familyName, familyOf, kindInfo, shownFamily, toggleOf, typeLabel } from '../../src/core/kinds';
 
 const fam = (kind: string) => kindInfo(kind)?.family;
 
@@ -93,5 +93,47 @@ describe('RETIRED_KINDS', () => {
   it('lists the dropped kinds, none of which is still in KINDS', () => {
     expect(RETIRED_KINDS).toEqual(['politeness']);
     for (const k of RETIRED_KINDS) expect(kindInfo(k), k).toBeUndefined();
+  });
+});
+
+describe('actions and type labels', () => {
+  it('gives every kind an action: an imperative of at most 4 words, in sentence case', () => {
+    for (const k of KINDS) {
+      const words = k.action.trim().split(/\s+/);
+      expect(k.action.trim(), k.kind).not.toBe('');
+      expect(words.length, k.kind).toBeLessThanOrEqual(4);
+      expect(k.action, k.kind).toMatch(/^[A-Z]/);
+      expect(words.slice(1).filter((w) => /^[A-Z]/.test(w) && w !== 'Oxford'), k.kind).toEqual([]);
+      expect(k.action, k.kind).not.toMatch(/[.!?]$/);
+    }
+  });
+
+  it('names the families, generic phrasing included', () => {
+    expect((['correctness', 'clarity', 'engagement', 'delivery', 'generic'] as const).map(familyName)).toEqual([
+      'Correctness', 'Clarity', 'Engagement', 'Delivery', 'Generic phrasing',
+    ]);
+  });
+
+  it('shows an error as correctness, generic phrasing as its own family, and other suggestions under their family', () => {
+    expect(shownFamily({ severity: 'error', category: 'grammar', kind: 'verb_tense' })).toBe('correctness');
+    expect(shownFamily({ severity: 'error', category: 'delivery', kind: 'generic_phrasing' })).toBe('correctness');
+    expect(shownFamily({ severity: 'suggestion', category: 'delivery', kind: 'generic_phrasing' })).toBe('generic');
+    expect(shownFamily({ severity: 'suggestion', category: 'delivery', kind: 'hedging' })).toBe('delivery');
+    expect(shownFamily({ severity: 'suggestion', category: 'clarity', kind: 'vague_word' })).toBe('engagement');
+  });
+
+  it('labels an issue "{Family} · {action}"', () => {
+    expect(typeLabel({ severity: 'suggestion', category: 'clarity', kind: 'wordy_phrase' })).toBe('Clarity · Cut wordiness');
+    expect(typeLabel({ severity: 'error', category: 'spelling', kind: 'spelling' })).toBe('Correctness · Fix the spelling');
+    expect(typeLabel({ severity: 'error', category: 'grammar', kind: 'subject_verb_agreement' })).toBe('Correctness · Fix subject-verb agreement');
+    expect(typeLabel({ severity: 'suggestion', category: 'clarity', kind: 'passive_voice' })).toBe('Clarity · Use the active voice');
+    expect(typeLabel({ severity: 'suggestion', category: 'delivery', kind: 'generic_phrasing' })).toBe('Generic phrasing · Say it plainly');
+    // The family comes from the kind, whatever category the model filed it under.
+    expect(typeLabel({ severity: 'suggestion', category: 'clarity', kind: 'vague_word' })).toMatch(/^Engagement · /);
+  });
+
+  it('labels a kind not listed "{Family} · Improve this": the family is always named', () => {
+    expect(typeLabel({ severity: 'suggestion', category: 'clarity', kind: 'made_up' })).toBe('Clarity · Improve this');
+    expect(typeLabel({ severity: 'error', category: 'grammar', kind: 'politeness' })).toBe('Correctness · Improve this');
   });
 });

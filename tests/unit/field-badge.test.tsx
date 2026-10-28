@@ -1,10 +1,10 @@
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
-import { Badge, badgeLook, coveredAt } from '../../src/content/overlay/Badge';
+import { Badge, badgeLook, coveredAt, topFamily } from '../../src/content/overlay/Badge';
 import { type BadgeState, mountOverlay } from '../../src/content/overlay/mount';
 import type { ToolsHandlers } from '../../src/content/tools/tools-controller';
-import type { CheckStatus, LocatedIssue } from '../../src/core/types';
+import type { CheckStatus, FamilyToggle, LocatedIssue } from '../../src/core/types';
 
 // The in-field badge: what each state shows and says, who can press it, what may sit on its spot, and the
 // overlay placing it (setBadge).
@@ -36,7 +36,7 @@ function userClick(el: Element) {
 
 const CLAUDE = { name: 'Claude', keyless: false };
 
-const view = (o: Partial<{ errors: number; suggestions: number; busy: boolean; status: CheckStatus; checked: boolean }> = {}) => ({
+const view = (o: Partial<{ errors: number; suggestions: number; busy: boolean; status: CheckStatus; checked: boolean; family: FamilyToggle }> = {}) => ({
   errors: 0,
   suggestions: 0,
   busy: false,
@@ -63,8 +63,25 @@ describe('badgeLook: what each state shows and says', () => {
     expect(badgeLook(view({ errors: 1 }), CLAUDE).label).toBe('EngLint: 1 error, 0 suggestions');
   });
 
-  it('suggestions only: their count in blue', () => {
-    expect(badgeLook(view({ suggestions: 3 }), CLAUDE)).toEqual({ face: 'count', text: '3', tone: 'blue', label: 'EngLint: 0 errors, 3 suggestions' });
+  it('suggestions only: their count in their top family\u2019s colour (Clarity when none is given)', () => {
+    expect(badgeLook(view({ suggestions: 3, family: 'engagement' }), CLAUDE)).toEqual({
+      face: 'count',
+      text: '3',
+      tone: 'family',
+      family: 'engagement',
+      label: 'EngLint: 0 errors, 3 suggestions',
+    });
+    expect(badgeLook(view({ suggestions: 1 }), CLAUDE)).toMatchObject({ tone: 'family', family: 'clarity' });
+    expect(badgeLook(view({ errors: 1, suggestions: 1, family: 'delivery' }), CLAUDE)).not.toHaveProperty('family'); // red wins
+  });
+
+  it('the top family: the first of Clarity, Engagement, Delivery and Generic phrasing with an open suggestion; errors aside', () => {
+    const s = (kind: string, severity = 'suggestion') => ({ severity, category: 'clarity', kind }) as LocatedIssue;
+    expect(topFamily([s('generic_phrasing'), s('vague_word'), s('hedging'), s('vague_word')])).toBe('engagement');
+    expect(topFamily([s('hedging'), s('generic_phrasing'), s('wordy_phrase')])).toBe('clarity');
+    expect(topFamily([s('generic_phrasing'), s('hedging')])).toBe('delivery');
+    expect(topFamily([s('spelling', 'error'), s('generic_phrasing')])).toBe('generic');
+    expect(topFamily([s('spelling', 'error')])).toBeUndefined();
   });
 
   it('nothing open: a green check, "no issues"', () => {
@@ -142,6 +159,13 @@ describe('Badge', () => {
       expect(button.textContent).toBe(glyph);
       cleanup();
     }
+  });
+
+  it('a suggestions count is drawn in its family\u2019s colour class', () => {
+    const { button } = draw(badgeLook(view({ suggestions: 2, family: 'delivery' }), CLAUDE));
+    expect(button.className).toBe('englint-badge family el-fam-delivery');
+    cleanup();
+    expect(draw().button.className).toBe('englint-badge red');
   });
 
   it('a page script clicking it does nothing; the user clicking it calls onClick once', () => {
@@ -236,6 +260,37 @@ describe('setBadge: the overlay places one badge, for one field', () => {
     expect(badge()).toBeNull();
   });
 
+  it('is fully opaque while the pointer is over its field, not only over the badge: on a pointer move, and on a redraw', async () => {
+    vi.useFakeTimers();
+    try {
+      const o = await mountOverlay(ctx);
+      const field = state().field;
+      let hovered = false;
+      const matches = field.matches.bind(field);
+      field.matches = (selector: string) => (selector === ':hover' ? hovered : matches(selector)); // happy-dom has no hover
+      const move = async () => {
+        await act(async () => {
+          document.dispatchEvent(new MouseEvent('mousemove', { clientX: 150, clientY: 80, bubbles: true }));
+          await vi.advanceTimersByTimeAsync(20); // a frame
+        });
+      };
+      await act(async () => o.setBadge('f1', state({ field })));
+      expect(badge()!.classList.contains('hot')).toBe(false);
+      hovered = true;
+      await move();
+      expect(badge()!.classList.contains('hot')).toBe(true);
+      hovered = false;
+      await move();
+      expect(badge()!.classList.contains('hot')).toBe(false);
+      // The pointer was over the field before the overlay saw it move (the click that focused it): a redraw finds it.
+      hovered = true;
+      await act(async () => o.setBadge('f1', state({ field })));
+      expect(badge()!.classList.contains('hot')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a new field takes the one badge over', async () => {
     const o = await mountOverlay(ctx);
     await act(async () => o.setBadge('f1', state()));
@@ -272,23 +327,65 @@ describe('setBadge: the overlay places one badge, for one field', () => {
     model: { original: 'has', replacement: 'have' },
   } as unknown as LocatedIssue;
 
-  it("paints under EngLint's own card, undo chip, selection button and tools popover: it comes before them in the root", async () => {
+  it("paints under EngLint's own card, undo chip, selection bar and tools popover: it comes before them in the root", async () => {
     const o = await mountOverlay(ctx);
     const text = new DOMRect(300, 140, 40, 16);
     await act(async () => {
       o.render('f1', [{ issue, rects: [text] }]);
       o.open('f1', 'i1');
       o.showUndo('f1', text, 'Stopped suggesting it.', () => {});
-      o.showSelectionButton(text, () => {});
+      o.showSelectionBar({ at: text, mode: 'standard', onPick: () => {} });
       const handlers = { pick() {}, apply() {}, showVariants() {}, retry() {}, close() {} } as unknown as ToolsHandlers;
-      o.showTools(text, { phase: 'menu', mode: 'standard' }, handlers);
+      o.showTools(text, { phase: 'loading', label: 'Rewriting…' }, handlers, 'Improve');
       o.setBadge('f1', state());
     });
     const ours = badge()!;
-    for (const selector of ['.englint-card', '.englint-undo', '.englint-select-btn', '.englint-tools']) {
+    for (const selector of ['.englint-card', '.englint-undo', '.englint-bar', '.englint-tools']) {
       const other = shadow().querySelector(selector);
       expect(other, selector).not.toBeNull();
       expect(ours.compareDocumentPosition(other!) & Node.DOCUMENT_POSITION_FOLLOWING, selector).toBeTruthy();
+    }
+  });
+
+  it('resting the pointer on the selection bar, its open menu or the tools popover opens no card for the word under it', async () => {
+    vi.useFakeTimers();
+    try {
+      const o = await mountOverlay(ctx);
+      const word = new DOMRect(100, 140, 300, 16);
+      const handlers = { pick() {}, apply() {}, showVariants() {}, retry() {}, close() {} } as unknown as ToolsHandlers;
+      await act(async () => {
+        o.render('f1', [{ issue, rects: [word] }]);
+        o.showSelectionBar({ at: new DOMRect(100, 200, 50, 16), mode: 'standard', onPick: () => {} });
+      });
+      const rest = async (x: number, y: number) => {
+        await act(async () => {
+          document.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y, bubbles: true }));
+          await vi.advanceTimersByTimeAsync(400); // a frame, then past the card's open delay
+        });
+      };
+      const covering = (selector: string, box: DOMRect) =>
+        Object.defineProperty(shadow().querySelector(selector)!, 'getBoundingClientRect', { value: () => box }); // happy-dom has no layout
+      covering('.englint-bar', new DOMRect(100, 130, 200, 36));
+      await rest(150, 148); // on the bar, over the word
+      expect(shadow().querySelector('.englint-card')).toBeNull();
+
+      await act(async () => userClick([...shadow().querySelectorAll('.englint-bar button')].find((b) => b.textContent === 'Tone')!));
+      covering('.englint-bar .englint-menu', new DOMRect(320, 140, 60, 120));
+      await rest(350, 148); // on the open menu, over the word
+      expect(shadow().querySelector('.englint-card')).toBeNull();
+
+      await act(async () => {
+        o.showSelectionBar(null);
+        o.showTools(new DOMRect(100, 120, 50, 16), { phase: 'loading', label: 'Rewriting…' }, handlers, 'Improve');
+      });
+      covering('.englint-tools', new DOMRect(380, 130, 380, 120));
+      await rest(390, 148); // on the popover, over the word
+      expect(shadow().querySelector('.englint-card')).toBeNull();
+
+      await rest(200, 148); // on the word, clear of the popover: its card opens
+      expect(shadow().querySelector('.englint-card')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
     }
   });
 

@@ -146,6 +146,16 @@ describe('the endpoint permission', () => {
     expect(calls).toEqual({ live: 0, tool: 0, chat: 0 });
   });
 
+  it('holds for the word-limit tool too, with no request', async () => {
+    const { client, calls } = fakeClient();
+    const d = deps(OPENAI, 'sk-test', false, client);
+    const text = 'In order to win the final, we really practiced every single day after school.';
+    const r = await createToolsService({ ...d, extensionOrigin: ORIGIN }).wordLimit({ host: 'example.com', mode: 'essay', text, before: '', after: '', target: 10 });
+    expect(r.status).toBe('endpoint_blocked');
+    expect(d.made).not.toHaveBeenCalled();
+    expect(calls.tool).toBe(0);
+  });
+
   it('serves cached results without asking for the permission', async () => {
     const { client } = fakeClient();
     const allowed = deps(OPENAI, 'sk-test', true, client);

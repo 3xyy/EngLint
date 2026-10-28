@@ -93,29 +93,38 @@ async function openPanel(page: Page, extensionId: string, tabId: number): Promis
   return panel;
 }
 
-test('panel lists issues for the active field', async ({ page, pagesURL, mock, serviceWorker, extensionId }) => {
+test('panel lists issues for the active field: each says what type of change it is, the change in its context, and why', async ({
+  page,
+  pagesURL,
+  mock,
+  serviceWorker,
+  extensionId,
+}) => {
   await clarityOn(serviceWorker);
   mock.respond(three);
   await page.goto(`${pagesURL}/textarea.html`);
   await typeInTextarea(page, 'I has a cat.\nIn order to win, we practice.');
   const panel = await openPanel(page, extensionId, await pageTab(serviceWorker));
 
-  const errors = panel.getByRole('region', { name: 'Errors' });
+  const errors = panel.getByRole('region', { name: 'Correctness' });
   const suggestions = panel.getByRole('region', { name: 'Clarity' });
   await expect(errors.locator('.item')).toHaveCount(1);
-  await expect(errors).not.toContainText('Correctness');
-  await expect(errors).not.toContainText('Use "have" with "I".');
-  await expect(errors.locator('.item-original, .item-reason, .item-category')).toHaveCount(0);
-  await expect(errors.locator('.item-fix')).toHaveText('have');
-  await expect(errors.getByRole('button', { name: 'Dismiss' })).toBeVisible();
+  await expect(errors.locator('.el-type-text')).toHaveText('Correctness · Fix subject-verb agreement');
+  await expect(errors.locator('.item-diff')).toHaveText('I hashave');
+  await expect(errors.locator('.item-diff ins')).toHaveText('have');
+  await expect(errors.locator('.item-why')).toHaveText('Use "have" with "I".');
+  await expect(errors.getByRole('button', { name: 'Accept', exact: true })).toBeVisible();
+  await expect(errors.getByRole('button', { name: 'Dismiss', exact: true })).toBeVisible();
+  await expect(errors.getByRole('button', { name: 'Show in text', exact: true })).toBeVisible();
   await expect(suggestions.locator('.item')).toHaveCount(1);
-  await expect(suggestions.locator('.item-fix')).toHaveText('To');
-  await expect(suggestions.locator('.item-original, .item-reason, .item-category')).toHaveCount(0);
+  await expect(suggestions.locator('.el-type-text')).toHaveText('Clarity · Cut wordiness');
+  await expect(suggestions.locator('.item-diff ins')).toHaveText('To');
   await expect(panel.getByText('$0.00 of $25 this month')).toBeVisible();
+  await expect(panel.locator('.panel-pill')).toHaveText('Up to date');
   await expect(panel.locator('.banner')).toHaveCount(0);
 });
 
-test('clicking the fix in the panel accepts, clicking the item jumps, Dismiss dismisses', async ({
+test('Accept in the panel accepts, clicking the item jumps, Dismiss dismisses', async ({
   page,
   pagesURL,
   mock,
@@ -129,14 +138,13 @@ test('clicking the fix in the panel accepts, clicking the item jumps, Dismiss di
   const panel = await openPanel(page, extensionId, await pageTab(serviceWorker));
   await expect(panel.locator('.item')).toHaveCount(2);
 
-  // Clicking the item (not the fix) jumps to it in the page.
+  // Clicking the item (not a button) jumps to it in the page.
   await page.locator('#far').click();
-  // Click the empty part of the fix row: outside both inner buttons.
-  await panel.locator('.item', { hasText: 'have' }).locator('.item-fixrow').click({ position: { x: 280, y: 4 } });
+  await panel.locator('.item', { hasText: 'have' }).locator('.item-why').click();
   await expect(page.locator('#ta')).toBeFocused();
   expect(await page.locator('#ta').evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd])).toEqual([2, 5]);
 
-  await panel.locator('.item-fix', { hasText: 'have' }).click();
+  await panel.locator('.item', { hasText: 'have' }).getByRole('button', { name: 'Accept' }).click();
   await expect(page.locator('#ta')).toHaveValue('I have a cat.\nShe go home.');
   await expect(panel.locator('.item')).toHaveCount(1);
 
@@ -164,7 +172,7 @@ test('a fix the page rejects, clicked in the panel, says it was copied to the cl
     ta.addEventListener('input', () => (ta.value = 'I has a cat.'));
   });
   const panel = await openPanel(page, extensionId, await pageTab(serviceWorker));
-  await panel.locator('.item-fix', { hasText: 'have' }).click();
+  await panel.locator('.item', { hasText: 'have' }).getByRole('button', { name: 'Accept' }).click();
   await expect(panel.locator('.notice')).toHaveText("Couldn't apply here — copied to clipboard.");
   await expect(page.locator('#ta')).toHaveValue('I has a cat.');
 });
@@ -175,7 +183,7 @@ const sentenceReply = toolsResponder({
   issues: (t) => (t.includes('very unique') ? [NOTE] : []),
 });
 
-test("a comment-only note is a Clarity item whose one button is 'Rewrite this sentence'; it opens the popover on that sentence", async ({
+test("a comment-only note is a Clarity item with 'Rewrite sentence' in place of Accept; it opens the popover on that sentence", async ({
   page,
   pagesURL,
   mock,
@@ -189,11 +197,12 @@ test("a comment-only note is a Clarity item whose one button is 'Rewrite this se
   const panel = await openPanel(page, extensionId, await pageTab(serviceWorker));
   const suggestions = panel.getByRole('region', { name: 'Clarity' });
   await expect(suggestions.locator('.item')).toHaveCount(1);
-  await expect(suggestions.locator('.item-fix')).toHaveCount(0);
-  const rewrite = suggestions.getByRole('button', { name: 'Rewrite this sentence' });
+  await expect(suggestions.getByRole('button', { name: 'Accept' })).toHaveCount(0);
+  await expect(suggestions.locator('.item-diff del, .item-diff ins')).toHaveCount(0);
+  await expect(suggestions.locator('.item-diff mark')).toHaveText('very unique');
+  const rewrite = suggestions.getByRole('button', { name: 'Rewrite sentence' });
   await expect(rewrite).toBeVisible();
   await expect(suggestions.getByRole('button', { name: 'Dismiss' })).toBeVisible();
-  await expect(suggestions.locator('.item-original, .item-reason, .item-category')).toHaveCount(0);
 
   await rewrite.click();
   await expect(page.locator('.englint-tools').getByRole('button', { name: /^Use version \d$/ }).first()).toBeVisible();
@@ -213,25 +222,25 @@ test('Accept all errors never touches a comment-only note', async ({ page, pages
   await expect(panel.locator('.item')).toHaveCount(2);
   await panel.getByRole('button', { name: 'Accept all errors' }).click();
   await expect(page.locator('#ta')).toHaveValue('I have a cat.\nThe plan is very unique.');
-  await expect(panel.getByRole('button', { name: 'Rewrite this sentence' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Rewrite sentence' })).toBeVisible();
 });
 
-test('panel items have a keyboard Go-to button and contextual names', async ({ page, pagesURL, mock, serviceWorker, extensionId }) => {
+test('panel items have a keyboard Show in text button, and each button says which change it is about', async ({ page, pagesURL, mock, serviceWorker, extensionId }) => {
   mock.respond(hasCat);
   await page.goto(`${pagesURL}/textarea.html`);
   await typeInTextarea(page, 'I has a cat.');
   await expect(page.locator('.englint-underline')).toHaveCount(1, { timeout: 3000 });
   const panel = await openPanel(page, extensionId, await pageTab(serviceWorker));
-  await expect(panel.getByRole('button', { name: "Replace 'has' with 'have'" })).toHaveText('have');
-  await expect(panel.getByRole('button', { name: "Dismiss 'has'" })).toHaveText('Dismiss');
+  for (const name of ['Accept', 'Dismiss', 'Show in text']) {
+    await expect(panel.getByRole('button', { name, exact: true })).toHaveAccessibleDescription("Replace 'has' with 'have'");
+  }
 
   // No ARIA button may contain a real button (nested-interactive), and the item stays a list item.
   expect(await panel.locator('[role="button"] button, button button').count()).toBe(0);
   await expect(panel.locator('li.item')).toHaveCount(1);
   await expect(panel.locator('li.item')).not.toHaveAttribute('role', /.+/);
 
-  const goto = panel.getByRole('button', { name: "Go to 'has'" });
-  await expect(goto).toHaveAttribute('title', 'Show in text');
+  const goto = panel.getByRole('button', { name: 'Show in text', exact: true });
   for (const key of ['Enter', 'Space']) {
     await page.locator('#far').click();
     await goto.focus();
@@ -253,10 +262,10 @@ test('Accept all errors applies errors only', async ({ page, pagesURL, mock, ser
 
   await panel.getByRole('button', { name: 'Accept all errors' }).click();
   await expect(page.locator('#ta')).toHaveValue('I have a cat.\nShe goes home.\nIn order to win, we practice.');
-  await expect(panel.getByRole('region', { name: 'Errors' })).toHaveCount(0);
+  await expect(panel.getByRole('region', { name: 'Correctness' })).toHaveCount(0);
   const suggestions = panel.getByRole('region', { name: 'Clarity' });
   await expect(suggestions.locator('.item')).toHaveCount(1);
-  await expect(suggestions.locator('.item-fix')).toHaveText('To');
+  await expect(suggestions.locator('.item-diff ins')).toHaveText('To');
 });
 
 test('Check everything rechecks without waiting for the pause', async ({ page, pagesURL, mock, serviceWorker, extensionId }) => {
@@ -297,7 +306,7 @@ test('the panel survives a field whose frame is gone', async ({ page, pagesURL, 
   }, tabId);
   const panel = await openPanel(page, extensionId, tabId);
 
-  await panel.locator('.item-fix').click();
+  await panel.locator('.item').getByRole('button', { name: 'Accept' }).click();
   await expect(panel.getByText("Couldn't reach that text box. Click into it and try again.")).toBeVisible();
   await expect(panel.locator('.item')).toHaveCount(1); // still alive
   await expect(page.locator('#ta')).toHaveValue('I has a cat.');
@@ -522,7 +531,7 @@ test('popup toggle disables the site', async ({ page, pagesURL, mock, serviceWor
   const popup = await page.context().newPage();
   await popup.goto(`${chromeExt(extensionId)}/popup.html?tabId=${await pageTab(serviceWorker)}`);
   await expect(popup.getByText('127.0.0.1')).toBeVisible();
-  const toggle = popup.getByLabel('EngLint on this site');
+  const toggle = popup.getByRole('switch', { name: 'Check this site' });
   await expect(toggle).toBeChecked();
 
   await toggle.click();
@@ -551,23 +560,27 @@ test("the popup's switch sets the off badge even on a page with no content scrip
   const badge = () => serviceWorker.evaluate((id) => chrome.action.getBadgeText({ tabId: id }), tabId);
   const popup = await page.context().newPage();
   await popup.goto(`${chromeExt(extensionId)}/popup.html?tabId=${tabId}`);
-  const toggle = popup.getByLabel('EngLint on this site');
+  const toggle = popup.getByRole('switch', { name: 'Check this site' });
   await toggle.click();
   await expect.poll(badge).toBe('off');
   await toggle.click();
   await expect.poll(badge).toBe('');
 });
 
-test('popup has no mode control', async ({ page, pagesURL, serviceWorker, extensionId }) => {
+test("the popup's mode control shows this site's mode, and a click sets it for the site", async ({ page, pagesURL, serviceWorker, extensionId }) => {
   await page.goto(`${pagesURL}/textarea.html`);
   await typeInTextarea(page, 'Hello.');
   const popup = await page.context().newPage();
   await popup.goto(`${chromeExt(extensionId)}/popup.html?tabId=${await pageTab(serviceWorker, false)}`);
   await expect(popup.getByRole('button', { name: 'Open panel' })).toBeVisible();
   await expect(popup.getByText('$0.00 of $25 this month')).toBeVisible();
-  await expect(popup.getByLabel('Mode')).toHaveCount(0);
-  await expect(popup.locator('select')).toHaveCount(0);
-  await expect(popup.getByText(/mode/i)).toHaveCount(0);
+  const mode = popup.getByRole('radiogroup', { name: 'Mode' });
+  await expect(mode.getByRole('radio')).toHaveText(['Essay', 'Standard', 'Casual']);
+  await expect(mode.getByRole('radio', { name: 'Standard' })).toBeChecked();
+  await mode.getByRole('radio', { name: 'Essay' }).click();
+  await expect.poll(() => serviceWorker.evaluate(() => chrome.storage.local.get('siteModes'))).toEqual({ siteModes: { '127.0.0.1': 'essay' } });
+  await expect(mode.getByRole('radio', { name: 'Essay' })).toBeChecked();
+  await expect(mode.getByRole('radio', { name: 'Standard' })).not.toBeChecked();
 });
 
 test('options never contain the saved key, before or after Save', async ({ page, extensionId, serviceWorker }) => {
@@ -644,7 +657,8 @@ test('popup shows key_missing banner with no key', async ({ page, pagesURL, serv
   const popup = await page.context().newPage();
   await popup.goto(`${chromeExt(extensionId)}/popup.html?tabId=${tabId}`);
   await expect(popup.locator('.banner')).toContainText('Add your Claude API key to start checking.');
-  await expect(popup.getByText('Ready. EngLint checks')).toHaveCount(0);
+  await expect(popup.locator('header').getByText('Needs setup', { exact: true })).toBeVisible();
+  await expect(popup.getByText('EngLint checks text boxes')).toHaveCount(0);
 });
 
 test('popup with a key and nothing checked says Ready', async ({ page, pagesURL, serviceWorker, extensionId }) => {
@@ -652,7 +666,8 @@ test('popup with a key and nothing checked says Ready', async ({ page, pagesURL,
   const tabId = await serviceWorker.evaluate(async () => (await chrome.tabs.query({ active: true }))[0].id as number);
   const popup = await page.context().newPage();
   await popup.goto(`${chromeExt(extensionId)}/popup.html?tabId=${tabId}`);
-  await expect(popup.getByText('Ready. EngLint checks text boxes as you type.')).toBeVisible();
+  await expect(popup.locator('header').getByText('Ready', { exact: true })).toBeVisible(); // the status pill
+  await expect(popup.getByText('EngLint checks text boxes as you type.')).toBeVisible();
   await expect(popup.locator('.banner')).toHaveCount(0);
 });
 
@@ -804,7 +819,7 @@ test("the panel's Tools on an Essay site ask for the critique first, then Show 3
   await panel.waitForTimeout(300);
   expect(sonnet(mock)).toHaveLength(0);
 
-  await tools.getByRole('button', { name: 'Rewrite', exact: true }).click();
+  await tools.getByRole('button', { name: 'Improve', exact: true }).click();
   await expect(tools.getByText('The verb does not agree with "I".')).toBeVisible();
   await expect(tools.getByRole('button', { name: 'Copy this version' })).toBeVisible();
   await expect(tools.getByRole('button', { name: /^Copy version/ })).toHaveCount(0);
@@ -828,18 +843,55 @@ test("the panel's Tools offer Expand on a Standard site, and not on an Essay sit
   const panel = await openPanel(page, extensionId, tabId);
   await panel.getByRole('tab', { name: 'Tools' }).click();
   const tools = panel.getByRole('region', { name: 'Tools' });
-  for (const name of ['More confident', 'Friendlier', 'More casual', 'Simpler', 'Expand', 'Sound like me']) {
+  for (const name of ['Confident', 'Friendly', 'Casual', 'Expand', 'My voice']) {
     await expect(tools.getByRole('button', { name, exact: true })).toBeVisible();
   }
 
   await serviceWorker.evaluate(() => chrome.storage.local.set({ siteModes: { '127.0.0.1': 'essay' } }));
   await expect(tools.getByRole('button', { name: 'Expand', exact: true })).toHaveCount(0);
-  await expect(tools.getByRole('button', { name: 'Simpler', exact: true })).toBeVisible();
-  await expect(tools.getByRole('button', { name: 'Sound like me', exact: true })).toBeVisible();
+  await expect(tools.getByRole('button', { name: 'Formal', exact: true })).toBeVisible();
+  await expect(tools.getByRole('button', { name: 'My voice', exact: true })).toBeVisible();
 
   await stashFor(serviceWorker, tabId, { text: 'I has a cat.', request: { kind: 'preset', presetId: 'expand' } });
   await expect(tools.getByRole('alert')).toHaveText("Expand isn't offered for essays.");
   expect(sonnet(mock)).toHaveLength(0);
+});
+
+test("the panel's Fit a word limit: the right-click menu's request opens the picker; the cuts are copied with the picks applied", async ({
+  page,
+  pagesURL,
+  mock,
+  serviceWorker,
+  extensionId,
+}) => {
+  const text = 'In order to win the final, we really practiced every single day after school.';
+  mock.respond(
+    toolsResponder({
+      wordLimit: {
+        cuts: [
+          { original: 'In order to', replacement: 'To', why: 'a wordy opening' },
+          { original: 'really', replacement: '', why: 'a filler word' },
+        ],
+        version: 'To win the final, we really practiced daily after school.',
+      },
+    }),
+  );
+  await page.goto(`${pagesURL}/textarea.html`);
+  const tabId = await activeTab(serviceWorker);
+  const panel = await openPanel(page, extensionId, tabId);
+  const tools = panel.getByRole('region', { name: 'Tools' });
+  await stashFor(serviceWorker, tabId, { text, request: { kind: 'wordLimit' } });
+  await expect(tools.locator('.el-wl-count')).toHaveText('14 words selected');
+  expect(sonnet(mock)).toHaveLength(0);
+  await tools.getByLabel('Target').fill('12');
+  await tools.getByRole('button', { name: 'Find cuts' }).click();
+  await expect(tools.getByRole('checkbox')).toHaveCount(2);
+  await expect(tools.locator('.el-wl-counter')).toHaveText('Selected cuts: 12 words (at the limit)');
+  await tools.getByRole('checkbox').nth(1).click();
+  await recordCopies(panel);
+  await tools.getByRole('button', { name: 'Copy selected' }).click();
+  await tools.getByRole('button', { name: 'Copy full version (10 words)' }).click();
+  expect(await panel.evaluate(() => (window as any).__copied)).toEqual(['To win the final, we practiced every single day after school.', 'To win the final, we really practiced daily after school.']);
 });
 
 test("the panel's Synonyms run for 1 to 4 words only, with Copy on each option", async ({ page, pagesURL, mock, serviceWorker, extensionId }) => {
@@ -882,11 +934,11 @@ test("the panel's Tools say when the text is too long, and show a failed request
   const tools = panel.getByRole('region', { name: 'Tools' });
   const box = tools.getByLabel('Paste or select text');
   await box.fill('word '.repeat(420).trim()); // 2,099 characters
-  await expect(tools.getByText('Select up to about 2,000 characters.')).toBeVisible();
+  await expect(tools.getByText('Only Fit a word limit works on selections this long.')).toBeVisible();
   await expect(tools.getByRole('button', { name: 'Shorter', exact: true })).toBeDisabled();
 
   await box.fill('I has a cat.');
-  await expect(tools.getByText('Select up to about 2,000 characters.')).toHaveCount(0);
+  await expect(tools.getByText('Only Fit a word limit works on selections this long.')).toHaveCount(0);
   await tools.getByRole('button', { name: 'Shorter', exact: true }).click();
   await expect(tools.getByRole('alert')).toHaveText("Couldn't get a usable answer from Claude. Try again.");
 
@@ -982,7 +1034,7 @@ test('a stash over the limit while an answer is on its way leaves that answer to
   await stashFor(serviceWorker, tabId, { text: 'I has a cat.', request: { kind: 'preset', presetId: 'shorter' } });
   await expect(tools.locator('.tools-loading')).toHaveText('Rewriting…');
   await stashFor(serviceWorker, tabId, { text: 'word '.repeat(420).trim(), request: { kind: 'preset', presetId: 'shorter' } });
-  await expect(tools.getByText('Select up to about 2,000 characters.')).toBeVisible();
+  await expect(tools.getByText('Only Fit a word limit works on selections this long.')).toBeVisible();
   answer();
   await expect(tools.getByRole('button', { name: /^Copy version \d$/ })).toHaveCount(3);
   expect(sonnet(mock)).toHaveLength(1);
@@ -992,7 +1044,7 @@ const VAGUE: Issue = { original: 'very good', replacement: null, before: 'It is'
 const CHAIRMAN: Issue = { original: 'chairman', replacement: 'chair', before: 'Ask the', category: 'delivery', severity: 'suggestion', kind: 'inclusive_language', reason: 'r' };
 const TESTAMENT: Issue = { original: 'stands as a testament to', replacement: 'shows', before: 'The bridge', category: 'delivery', severity: 'suggestion', kind: 'generic_phrasing', reason: 'r' };
 
-test('panel groups Errors, Clarity, Engagement and Delivery with counts; generic phrasing sits under Delivery; empty groups are hidden', async ({
+test('panel groups Correctness, Clarity, Engagement, Delivery and Generic phrasing with counts, as the cards name them; empty groups are hidden', async ({
   page,
   pagesURL,
   mock,
@@ -1021,13 +1073,14 @@ test('panel groups Errors, Clarity, Engagement and Delivery with counts; generic
   await typeInTextarea(page, 'I has a cat.\nIn order to win, we practice.\nIt is very good.\nAsk the chairman first.\nThe bridge stands as a testament to their skill.');
   const panel = await openPanel(page, extensionId, await pageTab(serviceWorker));
   await expect(panel.locator('.item')).toHaveCount(5);
-  await expect(panel.locator('section.group > h2')).toHaveText(['Errors (1)', 'Clarity (1)', 'Engagement (1)', 'Delivery (2)']);
-  await expect(panel.getByRole('region', { name: 'Delivery (2)' }).locator('.item')).toHaveCount(2);
+  await expect(panel.locator('section.group > h2')).toHaveText(['Correctness 1', 'Clarity 1', 'Engagement 1', 'Delivery 1', 'Generic phrasing 1']);
+  await expect(panel.getByRole('region', { name: 'Delivery (1)' }).locator('.el-type-text')).toHaveText(/^Delivery · /);
+  await expect(panel.getByRole('region', { name: 'Generic phrasing (1)' }).locator('.el-type-text')).toHaveText(/^Generic phrasing · /);
   await expect(panel.getByRole('region', { name: /Suggestions/ })).toHaveCount(0);
 
   await panel.getByRole('button', { name: 'Accept all errors' }).click();
-  await expect(panel.getByRole('region', { name: /^Errors/ })).toHaveCount(0); // an empty group is hidden
-  await expect(panel.locator('section.group > h2')).toHaveText(['Clarity (1)', 'Engagement (1)', 'Delivery (2)']);
+  await expect(panel.getByRole('region', { name: /^Correctness/ })).toHaveCount(0); // an empty group is hidden
+  await expect(panel.locator('section.group > h2')).toHaveText(['Clarity 1', 'Engagement 1', 'Delivery 1', 'Generic phrasing 1']);
 });
 
 test("the Review tab shows the text's word count, and revealText selects a quoted passage in the textarea", async ({

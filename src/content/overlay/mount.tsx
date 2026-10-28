@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
-import type { CheckStatus, LocatedIssue } from '../../core/types';
+import type { CheckStatus, FamilyToggle, LocatedIssue } from '../../core/types';
 import { badgePosition } from '../badge-placement';
 import type { ToolsHandlers, ToolsView } from '../tools/tools-controller';
 import { firstVisible, scrollMovesText, showsText, visibleBox } from './anchor';
@@ -13,7 +13,7 @@ import { Card, type CardSide, OfferChip, UndoChip } from './Card';
 import { type FieldLayer, SHADOW_MODE } from './field-layer';
 import { createFieldViews, type FieldView, type LayerTarget, originOf, type RenderResult, shift, toViewport } from './field-views';
 import { type ActiveState, type CardRef, createHoverState, idsOf, sameCard } from './hover-state';
-import { SelectionButton } from './SelectionButton';
+import { SelectionBar, type SelectionBarProps } from './SelectionBar';
 import { ToolsPopover } from './ToolsPopover';
 import { Flash, type OverlayItem, Underlines } from './Underlines';
 import './overlay.css';
@@ -21,9 +21,12 @@ import overlayCss from './overlay.css?inline'; // the same styles, for the field
 
 export type { LayerTarget, OverlayItem, RenderResult };
 
+/** The selection bar beside a field's selection: where, for which mode, and what a pick does. */
+export type SelectionBarState = Pick<SelectionBarProps, 'at' | 'mode' | 'singleWord' | 'tooLong' | 'onPick'>;
+
 /**
- * A card's action beside Dismiss: its label, and what pressing it does (`at`: the viewport rect of the card's
- * text; `side`: which side of it the card was on).
+ * A card's setting action, in its "⋯" menu: its label, and what pressing it does (`at`: the viewport rect of the
+ * card's text; `side`: which side of it the card was on).
  */
 export interface CardSecondary {
   label: string;
@@ -43,6 +46,8 @@ export interface BadgeState {
   status: CheckStatus;
   /** The field has had its first answer. */
   checked: boolean;
+  /** The top family of the open suggestions: a suggestions count is drawn in its colour. */
+  family?: FamilyToggle;
   /** The caret's line box (viewport px), or null: the badge hides while it overlaps it. */
   caret: DOMRect | null;
   /** The field's element: it, and what's inside it, never push the badge aside. */
@@ -66,13 +71,13 @@ export interface OverlayHandle {
   /** `cb(fieldId)` when the page took a field's layer out: draw that field again (it is put back). */
   onLayerLost(cb: (fieldId: string) => void): void;
   onAccept(cb: (fieldId: string, issueId: string) => void): void;
-  /** A comment-only card's "Rewrite this sentence" was pressed. */
+  /** A card's "Rewrite sentence" (in its menu, or a comment-only note's primary) was pressed. */
   onRewrite(cb: (fieldId: string, issueId: string) => void): void;
   /** A card's Dismiss was pressed: the card's text rect and the side of it the card was on come with it. */
   onDismiss(cb: (fieldId: string, issueId: string, at: DOMRect, side: CardSide) => void): void;
   /**
-   * Asks `cb` what an issue's card offers beside Dismiss (null: nothing). Pressing it closes the card, then runs
-   * the action with the viewport rect of the card's text and the side of it the card was on.
+   * Asks `cb` what setting action an issue's card offers in its menu (null: nothing). Pressing it closes the card,
+   * then runs the action with the viewport rect of the card's text and the side of it the card was on.
    */
   cardActions(cb: (fieldId: string, issue: LocatedIssue) => CardSecondary | null): void;
   /**
@@ -91,16 +96,16 @@ export interface OverlayHandle {
   /** Opens an issue's card at once (keyboard caret, jump-to). */
   open(fieldId: string, issueId: string): void;
   /**
-   * Shows the EngLint button after `anchor` (the last viewport rect of a field's selection), or hides it
-   * with null. `onClick` runs when it is pressed. FieldHost owns it: it also hides it on a scroll of the field.
+   * Shows the selection bar above `bar.at` (the viewport box of a field's selection), or hides it with null.
+   * `bar.onPick` runs for a button or menu item. FieldHost owns it: it also hides it on a scroll of the field.
    */
-  showSelectionButton(anchor: DOMRect | null, onClick: () => void): void;
+  showSelectionBar(bar: SelectionBarState | null): void;
   /**
-   * Shows the tools popover against `anchor` (the selection's viewport box) with `view`; null closes it. A
-   * click outside calls `handlers.close(false)`, Esc `handlers.close()`. tools/tools-controller.ts drives it;
-   * FieldHost hides the selection button when it opens one, so only one of the two shows at a time.
+   * Shows the tools popover against `anchor` (the selection's viewport box) with `view`, under the header `title`;
+   * null closes it. A click outside calls `handlers.close(false)`, Esc `handlers.close()`. tools/tools-controller.ts
+   * drives it; FieldHost hides the selection bar when it opens one, so only one of the two shows at a time.
    */
-  showTools(anchor: DOMRect | null, view: ToolsView | null, handlers: ToolsHandlers): void;
+  showTools(anchor: DOMRect | null, view: ToolsView | null, handlers: ToolsHandlers, title?: string): void;
   /** Flashes viewport `rects` of a field green, as an accepted fix does (a tools result was applied). */
   flash(fieldId: string, rects: DOMRect[]): void;
   /** Closes the open card, if any (keys typed where this document can't see them: Docs' text-event iframe). */
@@ -148,13 +153,16 @@ interface OverlayState extends ActiveState {
   cardAt: DOMRect | null;
   flashes: FlashView[];
   notice: string | null;
-  selectionButton: { at: DOMRect; onClick(): void } | null;
+  selectionBar: SelectionBarState | null;
   /** `key`: one per open, so the enter animation plays once, not on every view. */
-  tools: { key: number; at: DOMRect | null; view: ToolsView; handlers: ToolsHandlers } | null;
+  tools: { key: number; at: DOMRect | null; view: ToolsView; handlers: ToolsHandlers; title?: string } | null;
   /** The undo chip; `key`: one per chip, so a replacing chip enters afresh. */
   undo: { key: number; fieldId: string; at: DOMRect; side?: CardSide; text: string; onUndo(): void; offer?: { yes: string; onNo(): void } } | null;
-  /** The in-field badge: whose it is, where, and what it shows; `shown` false while it is hidden. */
-  badge: { fieldId: string; x: number; y: number; shown: boolean; look: BadgeLook } | null;
+  /**
+   * The in-field badge: whose it is, where, and what it shows; `shown` false while it is hidden; `hot` while the
+   * pointer is over its field (it is fully opaque then).
+   */
+  badge: { fieldId: string; x: number; y: number; shown: boolean; look: BadgeLook; hot: boolean } | null;
 }
 
 const sameRect = (a: DOMRect | null, b: DOMRect | null) =>
@@ -222,7 +230,7 @@ function OverlayView(props: {
   onRewrite(card: CardRef): void;
   onDismiss(card: CardRef, at: DOMRect, side: CardSide): void;
   onClose(): void;
-  /** What the open card offers beside Dismiss. */
+  /** The open card's setting action, for its menu. */
   secondary(card: CardRef, issue: LocatedIssue): CardSecondary | null;
   /** Pressing it: the card closes, then the action runs against the card's text rect and side. */
   onSecondary(action: CardSecondary, at: DOMRect, side: CardSide): void;
@@ -255,11 +263,12 @@ function OverlayView(props: {
         f.layer ? createPortal(<Flash rects={f.rects} />, f.layer.root, `flash/${f.key}`) : <Flash key={`flash/${f.key}`} rects={f.rects} />,
       )}
       {/* Before the card, the chip, the button and the popover: EngLint's own UI paints over it and gets its clicks. */}
-      {badge?.shown && <Badge x={badge.x} y={badge.y} look={badge.look} onClick={() => props.onBadge(badge.fieldId)} />}
+      {badge?.shown && <Badge x={badge.x} y={badge.y} look={badge.look} hot={badge.hot} onClick={() => props.onBadge(badge.fieldId)} />}
       {card && open && cardAt && (
         <Card
           key={`${card.fieldId}/${card.issueId}`}
           issue={open.issue}
+          context={open.context}
           anchor={cardAt}
           onAccept={() => props.onAccept(card)}
           onRewrite={() => props.onRewrite(card)}
@@ -274,13 +283,14 @@ function OverlayView(props: {
         ) : (
           <UndoChip key={undo.key} anchor={undo.at} side={undo.side} text={undo.text} onUndo={props.onUndo} />
         ))}
-      {state.selectionButton && <SelectionButton at={state.selectionButton.at} onClick={state.selectionButton.onClick} />}
+      {state.selectionBar && <SelectionBar {...state.selectionBar} />}
       {state.tools && (
         <ToolsPopover
           key={state.tools.key}
           anchor={state.tools.at ?? new DOMRect(0, 0, 0, 0)}
           view={state.tools.view}
           handlers={state.tools.handlers}
+          title={state.tools.title}
         />
       )}
       <div className="englint-notice" role="status" hidden={!state.notice}>
@@ -306,7 +316,7 @@ export async function mountOverlay(ctx: ContentScriptContext): Promise<OverlayHa
     fading: [],
     flashes: [],
     notice: null,
-    selectionButton: null,
+    selectionBar: null,
     tools: null,
     undo: null,
     badge: null,
@@ -331,6 +341,7 @@ export async function mountOverlay(ctx: ContentScriptContext): Promise<OverlayHa
   // Which of the card's issue rects it is placed against.
   let cardIndex = 0;
   let pointer = { x: 0, y: 0 };
+  let badgeField: Element | null = null; // the field the badge is for
   let lostCb: ((fieldId: string) => void) | null = null;
   let badgeCb: ((fieldId: string) => void) | null = null;
   const views = createFieldViews({
@@ -477,12 +488,25 @@ export async function mountOverlay(ctx: ContentScriptContext): Promise<OverlayHa
     if (!sameRect(now, cardAt)) store.set({ cardAt: now });
   };
 
+  /** The pointer is over the badge's field (the browser's own hover, known before the overlay saw any pointer move). */
+  const badgeHot = () => !!badgeField?.matches(':hover');
+  const updateBadgeHot = () => {
+    const { badge } = store.get();
+    const hot = badgeHot();
+    if (badge && badge.hot !== hot) store.set({ badge: { ...badge, hot } });
+  };
+
   const onPointer = (x: number, y: number) => {
+    updateBadgeHot();
     const open = store.get().card;
     const onCard = !!open && overCard(x, y);
-    // The undo chip and the badge cover text: the pointer on either is on neither the text nor the card.
-    const { undo, badge } = store.get();
-    const onOurs = (undo && over('.englint-undo', x, y)) || (badge && over('.englint-badge', x, y));
+    // The undo chip, the badge, the selection bar (and its menu) and the tools popover cover text: the pointer on
+    // one of them is on neither the text nor the card.
+    const { undo, badge, selectionBar, tools } = store.get();
+    const onOurs =
+      (undo && over('.englint-undo', x, y)) ||
+      (badge && over('.englint-badge', x, y)) ||
+      ((selectionBar || tools) && (over('.englint-bar', x, y) || over('.englint-bar .englint-menu', x, y) || over('.englint-tools', x, y)));
     const hit = onCard || onOurs ? null : hitIssue(x, y);
     setHover(hit); // instant feedback, this pointer frame; the card waits out the open delay
     if (open && (onCard || sameCard(hit, open))) {
@@ -522,6 +546,7 @@ export async function mountOverlay(ctx: ContentScriptContext): Promise<OverlayHa
   // The pointer left the window: nothing is hovered any more.
   ctx.addEventListener(document, 'mouseout', (e) => {
     if ((e as MouseEvent).relatedTarget !== null) return;
+    updateBadgeHot();
     cancelOpen();
     setHover(null);
   });
@@ -575,6 +600,7 @@ export async function mountOverlay(ctx: ContentScriptContext): Promise<OverlayHa
     'keydown',
     (e) => {
       if (e.key !== 'Escape') return;
+      if (ui.shadow.activeElement?.closest('[role="menu"]')) return; // the card's menu closes itself; the card stays
       closeUndo();
       if (store.get().card) setCard(null);
       store.get().tools?.handlers.close(); // also while focus is back in the field
@@ -652,17 +678,17 @@ export async function mountOverlay(ctx: ContentScriptContext): Promise<OverlayHa
     showNotice(text) {
       store.set({ notice: text });
     },
-    showSelectionButton(anchor, onClick) {
-      if (!anchor && !store.get().selectionButton) return;
-      store.set({ selectionButton: anchor ? { at: anchor, onClick } : null });
+    showSelectionBar(bar) {
+      if (!bar && !store.get().selectionBar) return;
+      store.set({ selectionBar: bar });
     },
-    showTools(anchor, view, handlers) {
+    showTools(anchor, view, handlers, title) {
       const open = store.get().tools;
       if (!view) {
         if (open) store.set({ tools: null });
         return;
       }
-      store.set({ tools: { key: open?.key ?? ++toolsSeq, at: anchor, view, handlers } });
+      store.set({ tools: { key: open?.key ?? ++toolsSeq, at: anchor, view, handlers, title } });
     },
     flash(fieldId, rects) {
       if (rects.length === 0) return;
@@ -689,12 +715,16 @@ export async function mountOverlay(ctx: ContentScriptContext): Promise<OverlayHa
     setBadge(fieldId, state) {
       const now = store.get().badge;
       if (!state) {
-        if (now?.fieldId === fieldId) store.set({ badge: null });
+        if (now?.fieldId === fieldId) {
+          badgeField = null;
+          store.set({ badge: null });
+        }
         return;
       }
+      badgeField = state.field;
       const at = badgePosition(state.anchor, { inset: state.inset, size: BADGE_SIZE, blocked: coveredAt(state.field), caret: state.caret });
       const look = badgeLook(state, providerInfoNow());
-      const next = { fieldId, x: at.x, y: at.y, shown: !at.hidden, look };
+      const next = { fieldId, x: at.x, y: at.y, shown: !at.hidden, look, hot: badgeHot() };
       // Scrolls redraw it every frame: the store changes only when what is shown does.
       const same =
         now?.fieldId === next.fieldId &&
@@ -703,7 +733,9 @@ export async function mountOverlay(ctx: ContentScriptContext): Promise<OverlayHa
         now.look.face === look.face &&
         now.look.text === look.text &&
         now.look.tone === look.tone &&
-        now.look.label === look.label;
+        now.look.family === look.family &&
+        now.look.label === look.label &&
+        now.hot === next.hot;
       if (!same) store.set({ badge: next });
     },
     onBadgeClick(cb) {
